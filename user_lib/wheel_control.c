@@ -26,9 +26,7 @@ static float wheel_target_rpm[MECANUM_WHEEL_COUNT] =
  */
 static void WheelControl_ClearTargets(void)
 {
-    for (uint8_t i = 0U;
-         i < MECANUM_WHEEL_COUNT;
-         i++)
+    for ( uint8_t i = 0U; i < MECANUM_WHEEL_COUNT; i++)
     {
         wheel_target_rpm[i] = 0.0f;
     }
@@ -47,22 +45,13 @@ void WheelControl_Init(void)
 /**
  * @brief Convert a chassis direction into wheel target RPM values.
  */
-WheelControl_Status_t WheelControl_SetDirection(
-    uint8_t direction,
-    float speed_rpm
-)
+WheelControl_Status_t WheelControl_SetDirection( uint8_t direction, float speed_rpm)
 {
     MecanumKinematics_Status_t kinematics_status;
 
-    kinematics_status =
-        MecanumKinematics_CalculateDirectionTargets(
-            direction,
-            speed_rpm,
-            wheel_target_rpm
-        );
+    kinematics_status = MecanumKinematics_CalculateDirectionTargets( direction, speed_rpm, wheel_target_rpm);
 
-    if (kinematics_status !=
-        MECANUM_KINEMATICS_STATUS_OK)
+    if (kinematics_status != MECANUM_KINEMATICS_STATUS_OK)
     {
         WheelControl_ClearTargets();
 
@@ -78,15 +67,9 @@ WheelControl_Status_t WheelControl_SetDirection(
  */
 void WheelControl_RunSpeedPID(float dt)
 {
-    for (uint8_t i = 0U;
-         i < MECANUM_WHEEL_COUNT;
-         i++)
+    for (uint8_t i = 0U; i < MECANUM_WHEEL_COUNT;i++)
     {
-        (void)Motor_Speed_PID(
-            (uint8_t)(i + 1U),
-            wheel_target_rpm[i],
-            dt
-        );
+        (void)Motor_Speed_PID( (uint8_t)(i + 1U), wheel_target_rpm[i], dt);
     }
 }
 

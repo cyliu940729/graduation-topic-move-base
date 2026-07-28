@@ -35,10 +35,7 @@ typedef enum
  *
  * This function must be called after osKernelInitialize().
  */
-ChassisTasks_Status_t ChassisTasks_Init(
-    UART_HandleTypeDef *command_uart,
-    ChassisTasks_LogFunction_t log_function
-);
+ChassisTasks_Status_t ChassisTasks_Init( UART_HandleTypeDef *command_uart, ChassisTasks_LogFunction_t log_function );
 
 
 /*

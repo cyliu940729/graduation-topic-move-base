@@ -9,6 +9,7 @@ extern "C" {
 
 
 #define MECANUM_WHEEL_COUNT    4U
+#define MECANUM_DIRECTION_COUNT   8U
 
 
 /*
@@ -21,6 +22,17 @@ typedef enum
     MECANUM_KINEMATICS_STATUS_INVALID_DIRECTION
 } MecanumKinematics_Status_t;
 
+typedef enum
+{
+    MECANUM_DIRECTION_NONE       = 0U,
+    MECANUM_DIRECTION_FORWARD    = 1U,
+    MECANUM_DIRECTION_BACKWARD   = 2U,
+    MECANUM_DIRECTION_LATERAL_A  = 3U,
+    MECANUM_DIRECTION_LATERAL_B  = 4U,
+    MECANUM_DIRECTION_ROTATE_A   = 5U,
+    MECANUM_DIRECTION_ROTATE_B   = 6U,
+    MECANUM_DIRECTION_STOP       = 7U,
+} MecanumDirection_t;
 
 /*
  * Convert a discrete chassis direction command into
@@ -43,11 +55,7 @@ typedef enum
  *     target_rpm[3]: Motor 4
  */
 MecanumKinematics_Status_t
-MecanumKinematics_CalculateDirectionTargets(
-    uint8_t direction,
-    float speed_rpm,
-    float target_rpm[MECANUM_WHEEL_COUNT]
-);
+MecanumKinematics_CalculateDirectionTargets( uint8_t direction, float speed_rpm, float target_rpm[MECANUM_WHEEL_COUNT]);
 
 
 #ifdef __cplusplus

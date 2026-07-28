@@ -48,17 +48,12 @@ static float MotionControl_GetAverageWheelDistance(void)
 {
     float distance_sum = 0.0f;
 
-    for (uint8_t device = 1U;
-         device <= MOTION_CONTROL_WHEEL_COUNT;
-         device++)
+    for (uint8_t device = 1U; device <= MOTION_CONTROL_WHEEL_COUNT; device++)
     {
-        distance_sum += fabsf(
-            Encoder_Get_Distance_cm(device)
-        );
+        distance_sum += fabsf( Encoder_Get_Distance_cm(device) );
     }
 
-    return distance_sum /
-           (float)MOTION_CONTROL_WHEEL_COUNT;
+    return distance_sum / (float)MOTION_CONTROL_WHEEL_COUNT;
 }
 
 

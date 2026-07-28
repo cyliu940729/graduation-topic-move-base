@@ -6,6 +6,12 @@ The project currently uses descriptive Git tags for verified development milesto
 
 ## Unreleased
 
+### Changed
+
+- Simplified motor and mecanum control using lookup tables.
+- Invalid motor device numbers are now ignored without changing existing motor outputs.
+- Normal chassis command behavior remains unchanged.
+
 ### Documentation
 
 - Updated `README.md` to describe the modular chassis architecture.

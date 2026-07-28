@@ -27,9 +27,7 @@ static osMutexId_t debug_console_mutex = NULL;
 /**
  * @brief Initialize the debug console module.
  */
-void DebugConsole_Init(
-    UART_HandleTypeDef *uart
-)
+void DebugConsole_Init( UART_HandleTypeDef *uart)
 {
     debug_console_uart = uart;
     debug_console_mutex = NULL;
@@ -68,18 +66,12 @@ uint8_t DebugConsole_CreateMutex(void)
 /**
  * @brief Send data through the debug UART.
  */
-HAL_StatusTypeDef DebugConsole_Write(
-    const uint8_t *data,
-    uint16_t length,
-    uint32_t timeout
-)
+HAL_StatusTypeDef DebugConsole_Write( const uint8_t *data, uint16_t length, uint32_t timeout)
 {
     HAL_StatusTypeDef uart_status;
     uint8_t mutex_locked = 0U;
 
-    if ((debug_console_uart == NULL) ||
-        (data == NULL) ||
-        (length == 0U))
+    if ((debug_console_uart == NULL) || (data == NULL) || (length == 0U))
     {
         return HAL_ERROR;
     }
@@ -90,13 +82,9 @@ HAL_StatusTypeDef DebugConsole_Write(
      * During boot, the kernel is not running yet,
      * so UART transmission is performed directly.
      */
-    if ((debug_console_mutex != NULL) &&
-        (osKernelGetState() == osKernelRunning))
+    if ((debug_console_mutex != NULL) && (osKernelGetState() == osKernelRunning))
     {
-        if (osMutexAcquire(
-                debug_console_mutex,
-                DEBUG_CONSOLE_MUTEX_TIMEOUT_MS
-            ) != osOK)
+        if (osMutexAcquire( debug_console_mutex, DEBUG_CONSOLE_MUTEX_TIMEOUT_MS ) != osOK)
         {
             return HAL_BUSY;
         }
@@ -104,18 +92,11 @@ HAL_StatusTypeDef DebugConsole_Write(
         mutex_locked = 1U;
     }
 
-    uart_status = HAL_UART_Transmit(
-        debug_console_uart,
-        (uint8_t *)data,
-        length,
-        timeout
-    );
+    uart_status = HAL_UART_Transmit( debug_console_uart, (uint8_t *)data, length, timeout );
 
     if (mutex_locked == 1U)
     {
-        (void)osMutexRelease(
-            debug_console_mutex
-        );
+        (void)osMutexRelease( debug_console_mutex );
     }
 
     return uart_status;
@@ -125,9 +106,7 @@ HAL_StatusTypeDef DebugConsole_Write(
 /**
  * @brief Send a null-terminated text string.
  */
-void DebugConsole_WriteText(
-    const char *text
-)
+void DebugConsole_WriteText( const char *text)
 {
     size_t length;
 
@@ -148,9 +127,5 @@ void DebugConsole_WriteText(
         length = UINT16_MAX;
     }
 
-    (void)DebugConsole_Write(
-        (const uint8_t *)text,
-        (uint16_t)length,
-        DEBUG_CONSOLE_TEXT_TIMEOUT_MS
-    );
+    (void)DebugConsole_Write( (const uint8_t *)text, (uint16_t)length, DEBUG_CONSOLE_TEXT_TIMEOUT_MS );
 }

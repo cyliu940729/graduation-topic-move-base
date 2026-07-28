@@ -59,10 +59,7 @@ static volatile uint8_t communication_receiving = 0U;
 /*
  * Parse a complete frame into a command structure.
  */
-static uint8_t Communication_ParseFrame(
-    const char *frame,
-    UART_Command_t *command
-)
+static uint8_t Communication_ParseFrame( const char *frame, UART_Command_t *command)
 {
     if ((frame == NULL) || (command == NULL))
     {
@@ -72,10 +69,7 @@ static uint8_t Communication_ParseFrame(
     /*
      * Keep the current UART command format unchanged.
      */
-    if (sscanf(frame,
-               "(%d,%f)",
-               &command->direction,
-               &command->distance) == 2)
+    if (sscanf(frame, "(%d,%f)", &command->direction, &command->distance) == 2)
     {
         return 1U;
     }
@@ -87,9 +81,7 @@ static uint8_t Communication_ParseFrame(
 /**
  * @brief Initialize the communication module.
  */
-Communication_InitStatus_t Communication_Init(
-    UART_HandleTypeDef *uart,
-    Communication_LogFunction_t log_function
+Communication_InitStatus_t Communication_Init( UART_HandleTypeDef *uart, Communication_LogFunction_t log_function
 )
 {
     if (uart == NULL)
@@ -109,11 +101,7 @@ Communication_InitStatus_t Communication_Init(
      * The receive queue is an internal implementation
      * detail of the communication module.
      */
-    communication_command_queue = osMessageQueueNew(
-        CHASSIS_COMMAND_QUEUE_SIZE,
-        COMMUNICATION_RX_BUFFER_SIZE,
-        NULL
-    );
+    communication_command_queue = osMessageQueueNew( CHASSIS_COMMAND_QUEUE_SIZE, COMMUNICATION_RX_BUFFER_SIZE, NULL );
 
     if (communication_command_queue == NULL)
     {
@@ -137,25 +125,17 @@ HAL_StatusTypeDef Communication_StartReceive(void)
         return HAL_ERROR;
     }
 
-    return HAL_UART_Receive_IT(
-        communication_uart,
-        &communication_rx_char,
-        1U
-    );
+    return HAL_UART_Receive_IT( communication_uart, &communication_rx_char, 1U );
 }
 
 /**
  * @brief Send a text response through the command UART.
  */
-HAL_StatusTypeDef Communication_SendText(
-    const char *text,
-    uint32_t timeout
-)
+HAL_StatusTypeDef Communication_SendText( const char *text, uint32_t timeout )
 {
     size_t length;
 
-    if ((communication_uart == NULL) ||
-        (text == NULL))
+    if ((communication_uart == NULL) || (text == NULL))
     {
         return HAL_ERROR;
     }
@@ -172,43 +152,28 @@ HAL_StatusTypeDef Communication_SendText(
         length = UINT16_MAX;
     }
 
-    return HAL_UART_Transmit(
-        communication_uart,
-        (uint8_t *)text,
-        (uint16_t)length,
-        timeout
-    );
+    return HAL_UART_Transmit( communication_uart, (uint8_t *)text, (uint16_t)length, timeout );
 }
 
 /**
  * @brief Read and parse one command from the frame queue.
  */
-Communication_CommandStatus_t Communication_GetCommand(
-    UART_Command_t *command,
-    uint32_t timeout
-)
+Communication_CommandStatus_t Communication_GetCommand( UART_Command_t *command, uint32_t timeout )
 {
     char frame[COMMUNICATION_RX_BUFFER_SIZE];
     osStatus_t queue_status;
 
-    if ((command == NULL) ||
-        (communication_command_queue == NULL))
+    if ((command == NULL) || (communication_command_queue == NULL))
     {
         return COMMUNICATION_COMMAND_QUEUE_ERROR;
     }
 
-    queue_status = osMessageQueueGet(
-        communication_command_queue,
-        frame,
-        NULL,
-        timeout
-    );
+    queue_status = osMessageQueueGet( communication_command_queue, frame, NULL, timeout );
 
     /*
      * No frame is currently available.
      */
-    if ((queue_status == osErrorResource) ||
-        (queue_status == osErrorTimeout))
+    if ((queue_status == osErrorResource) || (queue_status == osErrorTimeout))
     {
         return COMMUNICATION_COMMAND_NONE;
     }
@@ -235,12 +200,7 @@ Communication_CommandStatus_t Communication_GetCommand(
         char log_message[64];
         int log_length;
 
-        log_length = snprintf(
-            log_message,
-            sizeof(log_message),
-            "UART4 RX: %s\r\n",
-            frame
-        );
+        log_length = snprintf( log_message, sizeof(log_message), "UART4 RX: %s\r\n", frame );
 
         if (log_length > 0)
         {
@@ -265,8 +225,7 @@ Communication_CommandStatus_t Communication_GetCommand(
  */
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-    if ((communication_uart != NULL) &&
-        (huart == communication_uart))
+    if ((communication_uart != NULL) && (huart == communication_uart))
     {
         char received_char = (char)communication_rx_char;
 
@@ -280,21 +239,16 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
             communication_rx_index = 0U;
             communication_receiving = 1U;
 
-            communication_rx_buffer[
-                communication_rx_index++
-            ] = received_char;
+            communication_rx_buffer[ communication_rx_index++ ] = received_char;
         }
         else if (communication_receiving == 1U)
         {
             /*
              * Reserve the last buffer position for '\0'.
              */
-            if (communication_rx_index <
-                (COMMUNICATION_RX_BUFFER_SIZE - 1U))
+            if (communication_rx_index < (COMMUNICATION_RX_BUFFER_SIZE - 1U))
             {
-                communication_rx_buffer[
-                    communication_rx_index++
-                ] = received_char;
+                communication_rx_buffer[ communication_rx_index++ ] = received_char;
             }
 
             /*
@@ -302,9 +256,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
              */
             if (received_char == ')')
             {
-                communication_rx_buffer[
-                    communication_rx_index
-                ] = '\0';
+                communication_rx_buffer[ communication_rx_index ] = '\0';
 
                 communication_receiving = 0U;
 
@@ -314,12 +266,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
                  */
                 if (communication_command_queue != NULL)
                 {
-                    (void)osMessageQueuePut(
-                        communication_command_queue,
-                        communication_rx_buffer,
-                        0U,
-                        0U
-                    );
+                    (void)osMessageQueuePut( communication_command_queue, communication_rx_buffer, 0U, 0U );
                 }
 
                 communication_rx_index = 0U;
@@ -329,11 +276,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
         /*
          * Restart reception for the next byte.
          */
-        (void)HAL_UART_Receive_IT(
-            communication_uart,
-            &communication_rx_char,
-            1U
-        );
+        (void)HAL_UART_Receive_IT( communication_uart, &communication_rx_char, 1U );
     }
 }
 
@@ -346,8 +289,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
  */
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
-    if ((communication_uart != NULL) &&
-        (huart == communication_uart))
+    if ((communication_uart != NULL) && (huart == communication_uart))
     {
         __HAL_UART_CLEAR_OREFLAG(huart);
 
@@ -355,10 +297,6 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
         communication_receiving = 0U;
         communication_rx_buffer[0] = '\0';
 
-        (void)HAL_UART_Receive_IT(
-            communication_uart,
-            &communication_rx_char,
-            1U
-        );
+        (void)HAL_UART_Receive_IT( communication_uart, &communication_rx_char, 1U );
     }
 }

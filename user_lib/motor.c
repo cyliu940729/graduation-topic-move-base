@@ -5,16 +5,20 @@
 
 /* PWM timer --------------------------------------------------------------- */
 extern TIM_HandleTypeDef htim1;
-
 #define M_TIM       htim1
-#define M1_SPEED    TIM_CHANNEL_1
-#define M2_SPEED    TIM_CHANNEL_2
-#define M3_SPEED    TIM_CHANNEL_3
-#define M4_SPEED    TIM_CHANNEL_4
 
 /* D-term low-pass filter time constant. Kd is currently 0, but keep this
  * structure so the controller is the same as the tuning project. */
 #define PID_D_FILTER_TAU_S    0.05f
+
+typedef struct
+{
+    GPIO_TypeDef *I1_Port;
+    uint16_t      I1_Pin;
+
+    GPIO_TypeDef *I2_Port;
+    uint16_t      I2_Pin;
+} MotorGPIO_t;
 
 /* Final measured PI parameters. */
 PID_t motor_pid[4] =
@@ -65,141 +69,84 @@ PID_t motor_pid[4] =
     }
 };
 
-static float motor_current_rpm[4] =
+static float motor_current_rpm[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+
+static float motor_output_percent[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+
+static float motor_last_target_rpm[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+
+static const uint32_t m_speed_pin[4] =
 {
-    0.0f, 0.0f, 0.0f, 0.0f
+	TIM_CHANNEL_1,
+	TIM_CHANNEL_2,
+	TIM_CHANNEL_3,
+	TIM_CHANNEL_4
 };
 
-static float motor_output_percent[4] =
+static const int8_t m_direction[4] =
 {
-    0.0f, 0.0f, 0.0f, 0.0f
+    -1,     /* M1 */
+     1,     /* M2 */
+     1,     /* M3 */
+    -1      /* M4 */
 };
 
-static float motor_last_target_rpm[4] =
+static const MotorGPIO_t motor_gpio[4] =
 {
-    0.0f, 0.0f, 0.0f, 0.0f
+    {M1_I1_GPIO_Port, M1_I1_Pin, M1_I2_GPIO_Port, M1_I2_Pin},
+    {M2_I1_GPIO_Port, M2_I1_Pin, M2_I2_GPIO_Port, M2_I2_Pin},
+    {M3_I1_GPIO_Port, M3_I1_Pin, M3_I2_GPIO_Port, M3_I2_Pin},
+    {M4_I1_GPIO_Port, M4_I1_Pin, M4_I2_GPIO_Port, M4_I2_Pin}
 };
 
 void Motor_Init(void)
 {
-    (void)HAL_TIM_PWM_Start(&M_TIM, M1_SPEED);
-    (void)HAL_TIM_PWM_Start(&M_TIM, M2_SPEED);
-    (void)HAL_TIM_PWM_Start(&M_TIM, M3_SPEED);
-    (void)HAL_TIM_PWM_Start(&M_TIM, M4_SPEED);
+	for(int i = 0; i<4; i++)
+	{
+		(void)HAL_TIM_PWM_Start(&M_TIM, m_speed_pin[i]);
+	}
 
     Motor_Stop_All();
 }
 
-void Motor_Speed_Percent(uint8_t device,
-                         uint8_t percent,
-                         int8_t direction)
+void Motor_Speed_Percent(uint8_t device, uint8_t percent, int8_t direction)
 {
     uint32_t timer_arr;
     uint32_t motor_ccr;
+    GPIO_PinState pin_state;
+
+    if ((device < 1U) || (device > 4U) || (direction < -1) || (direction > 1))
+    {
+        return;
+    }
+
+    device = device - 1U;
 
     if (percent > 100U)
     {
         percent = 100U;
     }
 
-    /* Use the real TIM1 ARR instead of hard-coding 3599. */
     timer_arr = __HAL_TIM_GET_AUTORELOAD(&M_TIM);
     motor_ccr = (timer_arr * (uint32_t)percent) / 100U;
 
-    switch (device)
+    if( direction == 0 || motor_ccr ==0 )
     {
-        case 1:
-            __HAL_TIM_SET_COMPARE(&M_TIM, M1_SPEED, motor_ccr);
-
-            if (direction == 1)
-            {
-                HAL_GPIO_WritePin(M1_I1_GPIO_Port, M1_I1_Pin, GPIO_PIN_RESET);
-                HAL_GPIO_WritePin(M1_I2_GPIO_Port, M1_I2_Pin, GPIO_PIN_SET);
-            }
-            else if (direction == -1)
-            {
-                HAL_GPIO_WritePin(M1_I1_GPIO_Port, M1_I1_Pin, GPIO_PIN_SET);
-                HAL_GPIO_WritePin(M1_I2_GPIO_Port, M1_I2_Pin, GPIO_PIN_RESET);
-            }
-            else
-            {
-                HAL_GPIO_WritePin(M1_I1_GPIO_Port, M1_I1_Pin, GPIO_PIN_RESET);
-                HAL_GPIO_WritePin(M1_I2_GPIO_Port, M1_I2_Pin, GPIO_PIN_RESET);
-            }
-            break;
-
-        case 2:
-            __HAL_TIM_SET_COMPARE(&M_TIM, M2_SPEED, motor_ccr);
-
-            if (direction == 1)
-            {
-                HAL_GPIO_WritePin(M2_I1_GPIO_Port, M2_I1_Pin, GPIO_PIN_SET);
-                HAL_GPIO_WritePin(M2_I2_GPIO_Port, M2_I2_Pin, GPIO_PIN_RESET);
-            }
-            else if (direction == -1)
-            {
-                HAL_GPIO_WritePin(M2_I1_GPIO_Port, M2_I1_Pin, GPIO_PIN_RESET);
-                HAL_GPIO_WritePin(M2_I2_GPIO_Port, M2_I2_Pin, GPIO_PIN_SET);
-            }
-            else
-            {
-                HAL_GPIO_WritePin(M2_I1_GPIO_Port, M2_I1_Pin, GPIO_PIN_RESET);
-                HAL_GPIO_WritePin(M2_I2_GPIO_Port, M2_I2_Pin, GPIO_PIN_RESET);
-            }
-            break;
-
-        case 3:
-            __HAL_TIM_SET_COMPARE(&M_TIM, M3_SPEED, motor_ccr);
-
-            if (direction == 1)
-            {
-                HAL_GPIO_WritePin(M3_I1_GPIO_Port, M3_I1_Pin, GPIO_PIN_SET);
-                HAL_GPIO_WritePin(M3_I2_GPIO_Port, M3_I2_Pin, GPIO_PIN_RESET);
-            }
-            else if (direction == -1)
-            {
-                HAL_GPIO_WritePin(M3_I1_GPIO_Port, M3_I1_Pin, GPIO_PIN_RESET);
-                HAL_GPIO_WritePin(M3_I2_GPIO_Port, M3_I2_Pin, GPIO_PIN_SET);
-            }
-            else
-            {
-                HAL_GPIO_WritePin(M3_I1_GPIO_Port, M3_I1_Pin, GPIO_PIN_RESET);
-                HAL_GPIO_WritePin(M3_I2_GPIO_Port, M3_I2_Pin, GPIO_PIN_RESET);
-            }
-            break;
-
-        case 4:
-            __HAL_TIM_SET_COMPARE(&M_TIM, M4_SPEED, motor_ccr);
-
-            if (direction == 1)
-            {
-                HAL_GPIO_WritePin(M4_I1_GPIO_Port, M4_I1_Pin, GPIO_PIN_RESET);
-                HAL_GPIO_WritePin(M4_I2_GPIO_Port, M4_I2_Pin, GPIO_PIN_SET);
-            }
-            else if (direction == -1)
-            {
-                HAL_GPIO_WritePin(M4_I1_GPIO_Port, M4_I1_Pin, GPIO_PIN_SET);
-                HAL_GPIO_WritePin(M4_I2_GPIO_Port, M4_I2_Pin, GPIO_PIN_RESET);
-            }
-            else
-            {
-                HAL_GPIO_WritePin(M4_I1_GPIO_Port, M4_I1_Pin, GPIO_PIN_RESET);
-                HAL_GPIO_WritePin(M4_I2_GPIO_Port, M4_I2_Pin, GPIO_PIN_RESET);
-            }
-            break;
-
-        default:
-            __HAL_TIM_SET_COMPARE(&M_TIM, M1_SPEED, 0U);
-            __HAL_TIM_SET_COMPARE(&M_TIM, M2_SPEED, 0U);
-            __HAL_TIM_SET_COMPARE(&M_TIM, M3_SPEED, 0U);
-            __HAL_TIM_SET_COMPARE(&M_TIM, M4_SPEED, 0U);
-            break;
+        __HAL_TIM_SET_COMPARE( &M_TIM, m_speed_pin[device], 0 );
+        HAL_GPIO_WritePin( motor_gpio[device].I1_Port, motor_gpio[device].I1_Pin, GPIO_PIN_RESET);
+        HAL_GPIO_WritePin( motor_gpio[device].I2_Port, motor_gpio[device].I2_Pin, GPIO_PIN_RESET);
     }
+    else
+    {
+        pin_state = (m_direction[device] * direction > 0) ? GPIO_PIN_SET : GPIO_PIN_RESET;
+        __HAL_TIM_SET_COMPARE( &M_TIM, m_speed_pin[device], motor_ccr );
+        HAL_GPIO_WritePin( motor_gpio[device].I1_Port, motor_gpio[device].I1_Pin, pin_state);
+        HAL_GPIO_WritePin( motor_gpio[device].I2_Port, motor_gpio[device].I2_Pin, !pin_state);
+    }
+
 }
 
-float Motor_Speed_PID(uint8_t device,
-                      float target_rpm,
-                      float dt)
+float Motor_Speed_PID( uint8_t device, float target_rpm, float dt)
 {
     uint8_t idx;
     float current_rpm;
@@ -253,10 +200,7 @@ float Motor_Speed_PID(uint8_t device,
 
     current_abs = fabsf(current_rpm);
 
-    output = PID_Calculate(&motor_pid[idx],
-                           target_abs,
-                           current_abs,
-                           dt);
+    output = PID_Calculate( &motor_pid[idx], target_abs, current_abs, dt );
 
     if (output < 0.0f)
     {
@@ -292,10 +236,7 @@ void Motor_Stop_All(void)
     }
 }
 
-float PID_Calculate(PID_t *pid,
-                    float target,
-                    float current,
-                    float dt)
+float PID_Calculate( PID_t *pid, float target, float current, float dt )
 {
     float error;
     float p_term;
@@ -326,19 +267,14 @@ float PID_Calculate(PID_t *pid,
     raw_derivative = -(current - pid->prev_measurement) / dt;
     derivative_alpha = dt / (PID_D_FILTER_TAU_S + dt);
 
-    pid->derivative_state +=
-        derivative_alpha *
-        (raw_derivative - pid->derivative_state);
+    pid->derivative_state += derivative_alpha * (raw_derivative - pid->derivative_state);
 
     d_term = pid->kd * pid->derivative_state;
 
     /* Conditional-integration anti-windup. */
     candidate_integral = pid->integral + (error * dt);
 
-    candidate_output =
-        p_term +
-        (pid->ki * candidate_integral) +
-        d_term;
+    candidate_output = p_term + (pid->ki * candidate_integral) + d_term;
 
     if (((candidate_output < pid->output_max) &&
          (candidate_output > pid->output_min)) ||
@@ -367,10 +303,7 @@ float PID_Calculate(PID_t *pid,
     return output;
 }
 
-void Motor_Set_PID(uint8_t device,
-                   float kp,
-                   float ki,
-                   float kd)
+void Motor_Set_PID(uint8_t device, float kp, float ki, float kd)
 {
     uint8_t idx;
 
@@ -388,10 +321,7 @@ void Motor_Set_PID(uint8_t device,
     Motor_Reset_PID(device);
 }
 
-void Motor_Get_PID(uint8_t device,
-                   float *kp,
-                   float *ki,
-                   float *kd)
+void Motor_Get_PID(uint8_t device, float *kp, float *ki, float *kd)
 {
     uint8_t idx;
 
