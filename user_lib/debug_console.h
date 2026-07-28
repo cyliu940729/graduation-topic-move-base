@@ -16,9 +16,7 @@ extern "C" {
  * This function may be called before the RTOS kernel
  * is initialized.
  */
-void DebugConsole_Init(
-    UART_HandleTypeDef *uart
-);
+void DebugConsole_Init( UART_HandleTypeDef *uart );
 
 
 /*
@@ -43,19 +41,13 @@ uint8_t DebugConsole_CreateMutex(void);
  * After the scheduler starts, the UART mutex protects
  * the transmission operation.
  */
-HAL_StatusTypeDef DebugConsole_Write(
-    const uint8_t *data,
-    uint16_t length,
-    uint32_t timeout
-);
+HAL_StatusTypeDef DebugConsole_Write( const uint8_t *data, uint16_t length, uint32_t timeout );
 
 
 /*
  * Send a null-terminated text string.
  */
-void DebugConsole_WriteText(
-    const char *text
-);
+void DebugConsole_WriteText( const char *text );
 
 
 #ifdef __cplusplus

@@ -39,10 +39,7 @@ void WheelControl_Init(void);
  *     5: Rotation direction A
  *     6: Rotation direction B
  */
-WheelControl_Status_t WheelControl_SetDirection(
-    uint8_t direction,
-    float speed_rpm
-);
+WheelControl_Status_t WheelControl_SetDirection(uint8_t direction, float speed_rpm);
 
 
 /*

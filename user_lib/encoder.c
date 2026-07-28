@@ -62,8 +62,7 @@ void Encoder_Init(void)
 
         __HAL_TIM_SET_COUNTER(encoder_tim[i], 0U);
 
-        encoder_last_cnt[i] =
-            (uint16_t)__HAL_TIM_GET_COUNTER(encoder_tim[i]);
+        encoder_last_cnt[i] = (uint16_t)__HAL_TIM_GET_COUNTER(encoder_tim[i]);
 
         encoder_total_cnt[i] = 0;
         encoder_rpm[i] = 0.0f;
@@ -85,28 +84,20 @@ void Encoder_Update(uint8_t device)
 
     idx = (uint8_t)(device - 1U);
 
-    now_cnt =
-        (uint16_t)__HAL_TIM_GET_COUNTER(encoder_tim[idx]);
+    now_cnt = (uint16_t)__HAL_TIM_GET_COUNTER(encoder_tim[idx]);
 
     /* int16_t conversion handles normal 16-bit timer wrap-around. */
-    raw_diff =
-        (int16_t)(now_cnt - encoder_last_cnt[idx]);
+    raw_diff = (int16_t)(now_cnt - encoder_last_cnt[idx]);
 
     encoder_last_cnt[idx] = now_cnt;
 
-    corrected_diff =
-        (int32_t)raw_diff *
-        (int32_t)encoder_direction[idx];
+    corrected_diff = (int32_t)raw_diff * (int32_t)encoder_direction[idx];
 
     encoder_total_cnt[idx] += corrected_diff;
 
-    raw_rpm =
-        ((float)corrected_diff * 60.0f) /
-        (ENCODER_CPR * ENCODER_DT);
+    raw_rpm = ((float)corrected_diff * 60.0f) / (ENCODER_CPR * ENCODER_DT);
 
-    encoder_rpm[idx] +=
-        ENCODER_RPM_FILTER_ALPHA *
-        (raw_rpm - encoder_rpm[idx]);
+    encoder_rpm[idx] += ENCODER_RPM_FILTER_ALPHA * (raw_rpm - encoder_rpm[idx]);
 }
 
 void Encoder_Update_All(void)
@@ -128,9 +119,7 @@ float Encoder_Get_Angle(uint8_t device)
 
     idx = (uint8_t)(device - 1U);
 
-    return ((float)encoder_total_cnt[idx] /
-            ENCODER_CPR) *
-           360.0f;
+    return ((float)encoder_total_cnt[idx] / ENCODER_CPR) * 360.0f;
 }
 
 float Encoder_Get_RPM(uint8_t device)
@@ -166,15 +155,12 @@ float Encoder_Get_Distance_cm(uint8_t device)
     idx = (uint8_t)(device - 1U);
     wheel_circumference_cm = PI_F * WHEEL_DIAMETER_CM;
 
-    return ((float)encoder_total_cnt[idx] /
-            ENCODER_CPR) *
-           wheel_circumference_cm;
+    return ((float)encoder_total_cnt[idx] / ENCODER_CPR) * wheel_circumference_cm;
 }
 
 float CarAngle_From_WheelDistance(float wheel_cm)
 {
-    return (wheel_cm / CAR_TURN_RADIUS_CM) *
-           (180.0f / PI_F);
+    return (wheel_cm / CAR_TURN_RADIUS_CM) * (180.0f / PI_F);
 }
 
 

@@ -115,31 +115,22 @@ int main(void)
 
     motor_hw_ready = 1U;
 
-    DebugConsole_WriteText(
-        "Init OK\r\n"
-    );
+    DebugConsole_WriteText("Init OK\r\n");
 
     /* USER CODE END 2 */
 
     /*
      * Initialize the CMSIS-RTOS V2 kernel.
      */
-    DebugConsole_WriteText(
-        "RTOS 1: kernel init\r\n"
-    );
+    DebugConsole_WriteText("RTOS 1: kernel init\r\n");
 
     if (osKernelInitialize() != osOK)
     {
-        DebugConsole_WriteText(
-            "ERROR: osKernelInitialize\r\n"
-        );
-
+        DebugConsole_WriteText("ERROR: osKernelInitialize\r\n");
         Error_Handler();
     }
 
-    DebugConsole_WriteText(
-        "RTOS 2: kernel init OK\r\n"
-    );
+    DebugConsole_WriteText("RTOS 2: kernel init OK\r\n");
 
     /*
      * CubeMX defaultTask is intentionally not created here.
@@ -148,87 +139,53 @@ int main(void)
      */
     /* MX_FREERTOS_Init(); */
 
-    DebugConsole_WriteText(
-        "RTOS 3: communication init\r\n"
-    );
+    DebugConsole_WriteText("RTOS 3: communication init\r\n");
 
-    chassis_status = ChassisTasks_Init(
-        &huart4,
-        DebugConsole_WriteText
-    );
+    chassis_status = ChassisTasks_Init(&huart4,DebugConsole_WriteText);
 
     if (chassis_status != CHASSIS_TASKS_STATUS_OK)
     {
-        DebugConsole_WriteText(
-            "ERROR: communication init failed\r\n"
-        );
-
+        DebugConsole_WriteText("ERROR: communication init failed\r\n");
         Error_Handler();
     }
 
-    DebugConsole_WriteText(
-        "RTOS 4: communication OK\r\n"
-    );
+    DebugConsole_WriteText("RTOS 4: communication OK\r\n");
 
-    DebugConsole_WriteText(
-        "RTOS 5: create debug console mutex\r\n"
-    );
+    DebugConsole_WriteText("RTOS 5: create debug console mutex\r\n");
 
     if (DebugConsole_CreateMutex() == 0U)
     {
-        DebugConsole_WriteText(
-            "ERROR: debug console mutex create failed\r\n"
-        );
-
+        DebugConsole_WriteText("ERROR: debug console mutex create failed\r\n");
         Error_Handler();
     }
 
-    DebugConsole_WriteText(
-        "RTOS 6: debug console mutex OK\r\n"
-    );
+    DebugConsole_WriteText("RTOS 6: debug console mutex OK\r\n");
 
-    chassis_status =
-        ChassisTasks_CreateMotorTask();
+    chassis_status =ChassisTasks_CreateMotorTask();
 
     if (chassis_status != CHASSIS_TASKS_STATUS_OK)
     {
-        DebugConsole_WriteText(
-            "ERROR: motor task create failed\r\n"
-        );
-
+        DebugConsole_WriteText("ERROR: motor task create failed\r\n");
         Error_Handler();
     }
 
-    DebugConsole_WriteText(
-        "RTOS 7: motor task OK\r\n"
-    );
+    DebugConsole_WriteText("RTOS 7: motor task OK\r\n");
 
-    chassis_status =
-        ChassisTasks_CreateDebugTask();
+    chassis_status =ChassisTasks_CreateDebugTask();
 
     if (chassis_status != CHASSIS_TASKS_STATUS_OK)
     {
-        DebugConsole_WriteText(
-            "ERROR: debug task create failed\r\n"
-        );
-
+        DebugConsole_WriteText("ERROR: debug task create failed\r\n");
         Error_Handler();
     }
 
-    DebugConsole_WriteText(
-        "RTOS 8: debug task OK\r\n"
-    );
+    DebugConsole_WriteText("RTOS 8: debug task OK\r\n");
 
-    DebugConsole_WriteText(
-        "RTOS 9: scheduler start\r\n"
-    );
+    DebugConsole_WriteText("RTOS 9: scheduler start\r\n");
 
     if (osKernelStart() != osOK)
     {
-        DebugConsole_WriteText(
-            "ERROR: scheduler start failed\r\n"
-        );
-
+        DebugConsole_WriteText("ERROR: scheduler start failed\r\n");
         Error_Handler();
     }
 
@@ -275,10 +232,7 @@ void SystemClock_Config(void)
     RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
     RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-    if (HAL_RCC_ClockConfig(
-            &RCC_ClkInitStruct,
-            FLASH_LATENCY_2
-        ) != HAL_OK)
+    if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct,FLASH_LATENCY_2) != HAL_OK)
     {
         Error_Handler();
     }
@@ -286,9 +240,7 @@ void SystemClock_Config(void)
     PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_ADC;
     PeriphClkInit.AdcClockSelection = RCC_ADCPCLK2_DIV6;
 
-    if (HAL_RCCEx_PeriphCLKConfig(
-            &PeriphClkInit
-        ) != HAL_OK)
+    if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
     {
         Error_Handler();
     }

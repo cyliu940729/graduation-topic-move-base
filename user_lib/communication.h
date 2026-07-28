@@ -71,10 +71,7 @@ typedef void (*Communication_LogFunction_t)(const char *text);
  * This function must be called after
  * osKernelInitialize().
  */
-Communication_InitStatus_t Communication_Init(
-    UART_HandleTypeDef *uart,
-    Communication_LogFunction_t log_function
-);
+Communication_InitStatus_t Communication_Init( UART_HandleTypeDef *uart, Communication_LogFunction_t log_function );
 
 
 /*
@@ -88,10 +85,7 @@ HAL_StatusTypeDef Communication_StartReceive(void);
  * Send a null-terminated text response through
  * the command UART.
  */
-HAL_StatusTypeDef Communication_SendText(
-    const char *text,
-    uint32_t timeout
-);
+HAL_StatusTypeDef Communication_SendText( const char *text, uint32_t timeout );
 
 /*
  * Read and parse one command from the internal frame queue.
@@ -113,10 +107,7 @@ HAL_StatusTypeDef Communication_SendText(
  *     COMMUNICATION_COMMAND_QUEUE_ERROR
  *         The module is not initialized or the queue operation failed.
  */
-Communication_CommandStatus_t Communication_GetCommand(
-    UART_Command_t *command,
-    uint32_t timeout
-);
+Communication_CommandStatus_t Communication_GetCommand( UART_Command_t *command, uint32_t timeout );
 
 
 

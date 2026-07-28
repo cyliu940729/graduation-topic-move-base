@@ -71,11 +71,7 @@ void MotionControl_Init(void);
  *     Directions 5 and 6:
  *         Target rotation angle in degrees.
  */
-MotionControl_StartResult_t MotionControl_Start(
-    int direction,
-    float target_value,
-    float speed_rpm
-);
+MotionControl_StartResult_t MotionControl_Start( int direction, float target_value, float speed_rpm );
 
 
 /*
@@ -84,9 +80,7 @@ MotionControl_StartResult_t MotionControl_Start(
  *
  * This function should be called periodically.
  */
-MotionControl_UpdateResult_t MotionControl_Update(
-    float control_dt
-);
+MotionControl_UpdateResult_t MotionControl_Update( float control_dt );
 
 
 /*
@@ -98,9 +92,7 @@ void MotionControl_Stop(void);
 /*
  * Copy the current motion information.
  */
-void MotionControl_GetInfo(
-    MotionControl_Info_t *info
-);
+void MotionControl_GetInfo( MotionControl_Info_t *info );
 
 
 #ifdef __cplusplus

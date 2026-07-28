@@ -59,10 +59,7 @@ static uint8_t chassis_tasks_initialized = 0U;
 /**
  * @brief Initialize chassis task dependencies.
  */
-ChassisTasks_Status_t ChassisTasks_Init(
-    UART_HandleTypeDef *command_uart,
-    ChassisTasks_LogFunction_t log_function
-)
+ChassisTasks_Status_t ChassisTasks_Init( UART_HandleTypeDef *command_uart, ChassisTasks_LogFunction_t log_function )
 {
     Communication_InitStatus_t communication_status;
 
@@ -75,10 +72,7 @@ ChassisTasks_Status_t ChassisTasks_Init(
     chassis_debug_task_handle = NULL;
     chassis_tasks_initialized = 0U;
 
-    communication_status = Communication_Init(
-        command_uart,
-        log_function
-    );
+    communication_status = Communication_Init( command_uart, log_function );
 
     if (communication_status != COMMUNICATION_INIT_OK)
     {
@@ -106,11 +100,7 @@ ChassisTasks_Status_t ChassisTasks_CreateMotorTask(void)
         return CHASSIS_TASKS_STATUS_OK;
     }
 
-    chassis_motor_task_handle = osThreadNew(
-        ChassisTasks_MotorTask,
-        NULL,
-        &chassis_motor_task_attributes
-    );
+    chassis_motor_task_handle = osThreadNew( ChassisTasks_MotorTask, NULL, &chassis_motor_task_attributes );
 
     if (chassis_motor_task_handle == NULL)
     {
@@ -135,11 +125,7 @@ ChassisTasks_Status_t ChassisTasks_CreateDebugTask(void)
         return CHASSIS_TASKS_STATUS_OK;
     }
 
-    chassis_debug_task_handle = osThreadNew(
-        ChassisTasks_DebugTask,
-        NULL,
-        &chassis_debug_task_attributes
-    );
+    chassis_debug_task_handle = osThreadNew( ChassisTasks_DebugTask, NULL, &chassis_debug_task_attributes );
 
     if (chassis_debug_task_handle == NULL)
     {
@@ -159,17 +145,11 @@ static void ChassisTasks_ReportCompletion(void)
      * Motor stopping is handled by MotionControl_Update().
      * UART access is handled by the communication module.
      */
-    (void)Communication_SendText(
-        "1\r\n",
-        100U
-    );
+    (void)Communication_SendText( "1\r\n", 100U );
 
     if (chassis_debug_task_handle != NULL)
     {
-        (void)osThreadFlagsSet(
-            chassis_debug_task_handle,
-            CHASSIS_DEBUG_PRINT_FLAG
-        );
+        (void)osThreadFlagsSet( chassis_debug_task_handle, CHASSIS_DEBUG_PRINT_FLAG );
     }
 }
 
@@ -189,22 +169,15 @@ static void ChassisTasks_MotorTask(void *argument)
 
     if (receive_status == HAL_OK)
     {
-        DebugConsole_WriteText(
-            "UART4 RX interrupt started\r\n"
-        );
+        DebugConsole_WriteText( "UART4 RX interrupt started\r\n" );
     }
     else if (receive_status == HAL_BUSY)
     {
-        DebugConsole_WriteText(
-            "UART4 RX interrupt busy\r\n"
-        );
+        DebugConsole_WriteText( "UART4 RX interrupt busy\r\n" );
     }
     else
     {
-        DebugConsole_WriteText(
-            "UART4 RX interrupt error\r\n"
-        );
-
+        DebugConsole_WriteText( "UART4 RX interrupt error\r\n" );
         Error_Handler();
     }
 
@@ -218,60 +191,38 @@ static void ChassisTasks_MotorTask(void *argument)
         /*
          * Read one parsed command without blocking the control loop.
          */
-        command_status = Communication_GetCommand(
-            &command,
-            0U
-        );
+        command_status = Communication_GetCommand( &command, 0U );
 
         if (command_status == COMMUNICATION_COMMAND_READY)
         {
             MotionControl_StartResult_t start_result;
 
-            start_result = MotionControl_Start(
-                command.direction,
-                command.distance,
-                CHASSIS_DEFAULT_SPEED_RPM
-            );
+            start_result = MotionControl_Start( command.direction, command.distance, CHASSIS_DEFAULT_SPEED_RPM );
 
-            if (start_result ==
-                MOTION_CONTROL_START_INVALID_DIRECTION)
+            if (start_result == MOTION_CONTROL_START_INVALID_DIRECTION)
             {
-                DebugConsole_WriteText(
-                    "Invalid direction\r\n"
-                );
+                DebugConsole_WriteText( "Invalid direction\r\n" );
             }
-            else if (start_result ==
-                     MOTION_CONTROL_START_WHEEL_ERROR)
+            else if (start_result == MOTION_CONTROL_START_WHEEL_ERROR)
             {
-                DebugConsole_WriteText(
-                    "Wheel direction error\r\n"
-                );
+                DebugConsole_WriteText( "Wheel direction error\r\n" );
             }
         }
-        else if (command_status ==
-                 COMMUNICATION_COMMAND_PARSE_ERROR)
+        else if (command_status == COMMUNICATION_COMMAND_PARSE_ERROR)
         {
-            DebugConsole_WriteText(
-                "UART4 parse error\r\n"
-            );
+            DebugConsole_WriteText( "UART4 parse error\r\n" );
         }
-        else if (command_status ==
-                 COMMUNICATION_COMMAND_QUEUE_ERROR)
+        else if (command_status == COMMUNICATION_COMMAND_QUEUE_ERROR)
         {
-            DebugConsole_WriteText(
-                "UART4 queue error\r\n"
-            );
+            DebugConsole_WriteText( "UART4 queue error\r\n" );
         }
 
         /*
          * Update encoder data, completion detection, and wheel PID control.
          */
-        motion_result = MotionControl_Update(
-            CHASSIS_CONTROL_DT_S
-        );
+        motion_result = MotionControl_Update( CHASSIS_CONTROL_DT_S );
 
-        if (motion_result ==
-            MOTION_CONTROL_UPDATE_COMPLETED)
+        if (motion_result == MOTION_CONTROL_UPDATE_COMPLETED)
         {
             ChassisTasks_ReportCompletion();
         }
@@ -294,12 +245,8 @@ static void ChassisTasks_MotorTask(void *argument)
   */
 static void ChassisTasks_DebugTask(void *argument)
 {
-	char transmit_message[
-	    CHASSIS_DEBUG_MESSAGE_SIZE
-	];
-	float wheel_distance_cm[
-	    MECANUM_WHEEL_COUNT
-	];
+	char transmit_message[ CHASSIS_DEBUG_MESSAGE_SIZE ];
+	float wheel_distance_cm[ MECANUM_WHEEL_COUNT ];
     MotionControl_Info_t motion_info;
 
     (void)argument;
@@ -309,22 +256,13 @@ static void ChassisTasks_DebugTask(void *argument)
         uint32_t flags;
         int message_length;
 
-        flags = osThreadFlagsWait(
-            CHASSIS_DEBUG_PRINT_FLAG,
-            osFlagsWaitAny,
-            osWaitForever
-        );
+        flags = osThreadFlagsWait( CHASSIS_DEBUG_PRINT_FLAG, osFlagsWaitAny, osWaitForever );
 
         if ((flags & CHASSIS_DEBUG_PRINT_FLAG) != 0U)
         {
-        	for (uint32_t i = 0U;
-        	     i < MECANUM_WHEEL_COUNT;
-        	     i++)
+        	for (uint32_t i = 0U; i < MECANUM_WHEEL_COUNT; i++)
             {
-                wheel_distance_cm[i] =
-                    Encoder_Get_Distance_cm(
-                        (uint8_t)(i + 1U)
-                    );
+                wheel_distance_cm[i] = Encoder_Get_Distance_cm( (uint8_t)(i + 1U) );
             }
 
             MotionControl_GetInfo(&motion_info);
@@ -344,21 +282,14 @@ static void ChassisTasks_DebugTask(void *argument)
 
             if (message_length > 0)
             {
-                size_t transmit_length =
-                    (size_t)message_length;
+                size_t transmit_length = (size_t)message_length;
 
-                if (transmit_length >=
-                    sizeof(transmit_message))
+                if (transmit_length >= sizeof(transmit_message))
                 {
-                    transmit_length =
-                        sizeof(transmit_message) - 1U;
+                    transmit_length = sizeof(transmit_message) - 1U;
                 }
 
-                (void)DebugConsole_Write(
-                    (const uint8_t *)transmit_message,
-                    (uint16_t)transmit_length,
-                    500U
-                );
+                (void)DebugConsole_Write( (const uint8_t *)transmit_message, (uint16_t)transmit_length, 500U );
             }
         }
     }
