@@ -5,6 +5,7 @@
 
 #include "encoder.h"
 #include "wheel_control.h"
+#include "chassis_config.h"
 
 
 #define MOTION_CONTROL_WHEEL_COUNT    4U
@@ -39,7 +40,28 @@ static volatile float motion_distance_cm = 0.0f;
  */
 static volatile float motion_angle_deg = 0.0f;
 
+/*
+ * Maximum speed requested for the current movement.
+ */
+static float motion_max_speed_rpm = 0.0f;
 
+/*
+ * Current motion-profile speed in wheel linear speed.
+ */
+static float motion_profile_speed_cm_s = 0.0f;
+
+/*
+ * Target wheel travel distance used by the motion profile.
+ */
+static float motion_target_wheel_distance_cm = 0.0f;
+
+/*
+ * Internal function declarations.
+ */
+static float MotionControl_UpdateProfileSpeed(
+    float remaining_distance_cm,
+    float control_dt
+);
 /*
  * Calculate the average absolute travel distance
  * of all four wheels.
@@ -56,6 +78,24 @@ static float MotionControl_GetAverageWheelDistance(void)
     return distance_sum / (float)MOTION_CONTROL_WHEEL_COUNT;
 }
 
+/*
+ * Convert the requested chassis movement into
+ * the equivalent wheel travel distance.
+ */
+static float MotionControl_GetTargetWheelDistance( int direction, float target_value)
+{
+    if ((direction >= 1) && (direction <= 4))
+    {
+        return fabsf(target_value);
+    }
+
+    if ((direction == 5) || (direction == 6))
+    {
+        return WheelDistance_From_CarAngle( fabsf(target_value) );
+    }
+
+    return 0.0f;
+}
 
 /**
  * @brief Initialize the motion control module.
@@ -67,6 +107,10 @@ void MotionControl_Init(void)
     motion_target_value = 0.0f;
     motion_distance_cm = 0.0f;
     motion_angle_deg = 0.0f;
+
+    motion_max_speed_rpm = 0.0f;
+    motion_profile_speed_cm_s = 0.0f;
+    motion_target_wheel_distance_cm = 0.0f;
 
     WheelControl_Stop();
 }
@@ -95,8 +139,16 @@ MotionControl_StartResult_t MotionControl_Start(
     motion_distance_cm = 0.0f;
     motion_angle_deg = 0.0f;
 
-    if ((motion_direction < 1) ||
-        (motion_direction > 7))
+    motion_max_speed_rpm = fabsf(speed_rpm);
+    motion_profile_speed_cm_s = 0.0f;
+
+    motion_target_wheel_distance_cm =
+        MotionControl_GetTargetWheelDistance(
+            motion_direction,
+            motion_target_value
+        );
+
+    if ((motion_direction < 1) || (motion_direction > 7))
     {
         return MOTION_CONTROL_START_INVALID_DIRECTION;
     }
@@ -115,10 +167,7 @@ MotionControl_StartResult_t MotionControl_Start(
      */
     Encoder_Init();
 
-    wheel_status = WheelControl_SetDirection(
-        (uint8_t)motion_direction,
-        speed_rpm
-    );
+    wheel_status = WheelControl_SetDirection( (uint8_t)motion_direction, 0.0f );
 
     if (wheel_status != WHEEL_CONTROL_STATUS_OK)
     {
@@ -142,6 +191,9 @@ MotionControl_UpdateResult_t MotionControl_Update(
 {
     uint8_t movement_finished = 0U;
 
+    float remaining_distance_cm;
+    float target_speed_rpm;
+
     /*
      * Preserve the original behavior by updating
      * all encoders every control period, even when idle.
@@ -161,14 +213,19 @@ MotionControl_UpdateResult_t MotionControl_Update(
             motion_distance_cm
         );
 
+    remaining_distance_cm = motion_target_wheel_distance_cm - motion_distance_cm;
+
+    if (remaining_distance_cm < 0.0f)
+    {
+        remaining_distance_cm = 0.0f;
+    }
+
     /*
      * Directions 1 to 4 use distance as the target.
      */
-    if ((motion_direction >= 1) &&
-        (motion_direction <= 4))
+    if ((motion_direction >= 1) && (motion_direction <= 4))
     {
-        if (motion_distance_cm >=
-            motion_target_value)
+        if (motion_distance_cm >= motion_target_value)
         {
             movement_finished = 1U;
         }
@@ -178,11 +235,9 @@ MotionControl_UpdateResult_t MotionControl_Update(
      * Directions 5 and 6 use rotation angle
      * as the target.
      */
-    else if ((motion_direction == 5) ||
-             (motion_direction == 6))
+    else if ((motion_direction == 5) || (motion_direction == 6))
     {
-        if (motion_angle_deg >=
-            motion_target_value)
+        if (motion_angle_deg >= motion_target_value)
         {
             movement_finished = 1U;
         }
@@ -192,6 +247,7 @@ MotionControl_UpdateResult_t MotionControl_Update(
     {
         WheelControl_Stop();
         motion_running = 0U;
+        motion_profile_speed_cm_s = 0.0f;
 
         return MOTION_CONTROL_UPDATE_COMPLETED;
     }
@@ -200,6 +256,22 @@ MotionControl_UpdateResult_t MotionControl_Update(
      * Run one closed-loop speed update
      * for all four wheels.
      */
+    motion_profile_speed_cm_s =
+        MotionControl_UpdateProfileSpeed(
+            remaining_distance_cm,
+            control_dt
+        );
+
+    target_speed_rpm =
+        WheelRPM_From_LinearSpeed(
+            motion_profile_speed_cm_s
+        );
+
+    (void)WheelControl_SetDirection(
+        (uint8_t)motion_direction,
+        target_speed_rpm
+    );
+
     WheelControl_RunSpeedPID(control_dt);
 
     return MOTION_CONTROL_UPDATE_RUNNING;
@@ -213,6 +285,7 @@ void MotionControl_Stop(void)
 {
     WheelControl_Stop();
     motion_running = 0U;
+    motion_profile_speed_cm_s = 0.0f;
 }
 
 
@@ -231,8 +304,57 @@ void MotionControl_GetInfo(
     info->running = motion_running;
     info->direction = motion_direction;
     info->target_value = motion_target_value;
-    info->traveled_distance_cm =
-        motion_distance_cm;
-    info->rotated_angle_deg =
-        motion_angle_deg;
+    info->traveled_distance_cm = motion_distance_cm;
+    info->rotated_angle_deg = motion_angle_deg;
+}
+
+/*
+ * Update the trapezoidal motion-profile speed.
+ *
+ * The acceleration limit controls how quickly the
+ * target speed may increase.
+ *
+ * The braking-speed limit is calculated from:
+ *
+ *     v^2 = 2 * a * d
+ *
+ * so the vehicle begins decelerating early enough
+ * to approach zero speed at the target position.
+ */
+static float MotionControl_UpdateProfileSpeed( float remaining_distance_cm, float control_dt )
+{
+    float max_speed_cm_s;
+    float acceleration_limited_speed;
+    float braking_limited_speed;
+    float next_speed;
+
+    if ((remaining_distance_cm <= 0.0f) || (control_dt <= 0.0f))
+    {
+        return 0.0f;
+    }
+
+    max_speed_cm_s = fabsf( WheelLinearSpeed_From_RPM( motion_max_speed_rpm ) );
+
+    acceleration_limited_speed = motion_profile_speed_cm_s + (CHASSIS_ACCELERATION_CM_S2 * control_dt);
+
+    braking_limited_speed = sqrtf( 2.0f * CHASSIS_DECELERATION_CM_S2 * remaining_distance_cm );
+
+    next_speed = max_speed_cm_s;
+
+    if (acceleration_limited_speed < next_speed)
+    {
+        next_speed = acceleration_limited_speed;
+    }
+
+    if (braking_limited_speed < next_speed)
+    {
+        next_speed = braking_limited_speed;
+    }
+
+    if (next_speed < 0.0f)
+    {
+        next_speed = 0.0f;
+    }
+
+    return next_speed;
 }
