@@ -163,4 +163,32 @@ float CarAngle_From_WheelDistance(float wheel_cm)
     return (wheel_cm / CAR_TURN_RADIUS_CM) * (180.0f / PI_F);
 }
 
+float WheelDistance_From_CarAngle(float angle_deg)
+{
+    return angle_deg * (PI_F / 180.0f) * CAR_TURN_RADIUS_CM;
+}
+
+float WheelLinearSpeed_From_RPM(float rpm)
+{
+    float wheel_circumference_cm;
+
+    wheel_circumference_cm = PI_F * WHEEL_DIAMETER_CM;
+
+    return rpm * wheel_circumference_cm / 60.0f;
+}
+
+float WheelRPM_From_LinearSpeed(float speed_cm_s)
+{
+    float wheel_circumference_cm;
+
+    wheel_circumference_cm = PI_F * WHEEL_DIAMETER_CM;
+
+    if (wheel_circumference_cm <= 0.0f)
+    {
+        return 0.0f;
+    }
+
+    return speed_cm_s * 60.0f / wheel_circumference_cm;
+}
+
 

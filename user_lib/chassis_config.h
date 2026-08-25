@@ -26,6 +26,11 @@ extern "C" {
  */
 #define CHASSIS_DEFAULT_SPEED_RPM            30.0f
 
+/*
+ * Motion profile acceleration limits.
+ */
+#define CHASSIS_ACCELERATION_CM_S2           10.0f
+#define CHASSIS_DECELERATION_CM_S2           10.0f
 
 /*
  * CMSIS-RTOS V2 task stack sizes are specified in bytes.

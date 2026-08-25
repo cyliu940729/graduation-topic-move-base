@@ -6,11 +6,22 @@ The project currently uses descriptive Git tags for verified development milesto
 
 ## Unreleased
 
+### Added
+
+- Added trapezoidal and triangular motion-speed profiles.
+- Added acceleration and deceleration limits for chassis movement.
+- Added braking-distance-based automatic deceleration.
+- Added wheel RPM and linear-speed conversion helpers.
+- Added wheel-distance conversion for rotation commands.
+
 ### Changed
 
 - Simplified motor and mecanum control using lookup tables.
 - Invalid motor device numbers are now ignored without changing existing motor outputs.
 - Normal chassis command behavior remains unchanged.
+- Translation and rotation commands now accelerate and decelerate progressively instead of using an immediate fixed-speed step.
+- Encoder timer input filtering is set to reduce noise-induced count errors.
+- Direction 7 remains an immediate-stop command and bypasses the motion profile.
 
 ### Documentation
 
