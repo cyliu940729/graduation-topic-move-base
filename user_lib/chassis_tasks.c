@@ -12,6 +12,7 @@
 #include "chassis_config.h"
 #include "mecanum_kinematics.h"
 #include "power_monitor.h"
+#include "imu.h"
 
 
 #define CHASSIS_DEBUG_PRINT_FLAG      (1UL << 0)
@@ -22,6 +23,7 @@
  */
 static osThreadId_t chassis_motor_task_handle = NULL;
 static osThreadId_t chassis_debug_task_handle = NULL;
+static osThreadId_t chassis_imu_task_handle = NULL;
 
 
 
@@ -43,10 +45,18 @@ static const osThreadAttr_t chassis_debug_task_attributes =
     .priority = osPriorityLow
 };
 
+static const osThreadAttr_t chassis_imu_task_attributes =
+{
+    .name = "imu",
+    .stack_size = CHASSIS_IMU_TASK_STACK_SIZE,
+    .priority = osPriorityNormal
+};
+
 
 static void ChassisTasks_MotorTask(void *argument);
 static void ChassisTasks_DebugTask(void *argument);
 static void ChassisTasks_ReportCompletion(void);
+static void ChassisTasks_ImuTask(void *argument);
 
 /*
  * Indicates whether communication and task
@@ -71,6 +81,7 @@ ChassisTasks_Status_t ChassisTasks_Init( UART_HandleTypeDef *command_uart, Chass
 
     chassis_motor_task_handle = NULL;
     chassis_debug_task_handle = NULL;
+    chassis_imu_task_handle = NULL;
     chassis_tasks_initialized = 0U;
 
     communication_status = Communication_Init( command_uart, log_function );
@@ -136,6 +147,28 @@ ChassisTasks_Status_t ChassisTasks_CreateDebugTask(void)
     return CHASSIS_TASKS_STATUS_OK;
 }
 
+ChassisTasks_Status_t ChassisTasks_CreateImuTask(void)
+{
+    if (chassis_tasks_initialized == 0U)
+    {
+        return CHASSIS_TASKS_STATUS_COMMUNICATION_ERROR;
+    }
+
+    if (chassis_imu_task_handle != NULL)
+    {
+        return CHASSIS_TASKS_STATUS_OK;
+    }
+
+    chassis_imu_task_handle = osThreadNew( ChassisTasks_ImuTask, NULL, &chassis_imu_task_attributes );
+
+    if (chassis_imu_task_handle == NULL)
+    {
+        return CHASSIS_TASKS_STATUS_IMU_TASK_ERROR;
+    }
+
+    return CHASSIS_TASKS_STATUS_OK;
+}
+
 
 /**
  * @brief Report that the current movement has completed.
@@ -143,15 +176,15 @@ ChassisTasks_Status_t ChassisTasks_CreateDebugTask(void)
 static void ChassisTasks_ReportCompletion(void)
 {
     char response[32];
-    float battery_voltage;
+    uint8_t battery_percentage;
 
     /*
      * Motor stopping is handled by MotionControl_Update().
      * UART access is handled by the communication module.
      */
-    if (PowerMonitor_ReadVoltage( &battery_voltage ) == POWER_MONITOR_STATUS_OK)
+    if (PowerMonitor_ReadPercentage( &battery_percentage ) == POWER_MONITOR_STATUS_OK)
     {
-        (void)snprintf( response, sizeof(response), "1,%.2f\r\n", (double)battery_voltage );
+    	(void)snprintf( response, sizeof(response), "1,%u\r\n", (unsigned int)battery_percentage);
 
         (void)Communication_SendText( response, 100U );
     }
@@ -182,17 +215,25 @@ static void ChassisTasks_MotorTask(void *argument)
 
     if (receive_status == HAL_OK)
     {
-        DebugConsole_WriteText( "UART4 RX interrupt started\r\n" );
+        DebugConsole_WriteText(
+            "UART4 RX interrupt started\r\n"
+        );
     }
     else if (receive_status == HAL_BUSY)
     {
-        DebugConsole_WriteText( "UART4 RX interrupt busy\r\n" );
+        DebugConsole_WriteText(
+            "UART4 RX interrupt busy\r\n"
+        );
     }
     else
     {
-        DebugConsole_WriteText( "UART4 RX interrupt error\r\n" );
+        DebugConsole_WriteText(
+            "UART4 RX interrupt error\r\n"
+        );
+
         Error_Handler();
     }
+
 
     next_wake_tick = osKernelGetTickCount();
 
@@ -219,6 +260,12 @@ static void ChassisTasks_MotorTask(void *argument)
             else if (start_result == MOTION_CONTROL_START_WHEEL_ERROR)
             {
                 DebugConsole_WriteText( "Wheel direction error\r\n" );
+            }
+            else if (start_result == MOTION_CONTROL_START_IMU_NOT_READY)
+            {
+                DebugConsole_WriteText(
+                    "IMU not ready\r\n"
+                );
             }
         }
         else if (command_status == COMMUNICATION_COMMAND_PARSE_ERROR)
@@ -304,6 +351,95 @@ static void ChassisTasks_DebugTask(void *argument)
 
                 (void)DebugConsole_Write( (const uint8_t *)transmit_message, (uint16_t)transmit_length, 500U );
             }
+        }
+    }
+}
+
+static void ChassisTasks_ImuTask(void *argument)
+{
+    char message[96];
+    uint32_t next_wake_tick;
+    uint32_t print_counter = 0U;
+    uint8_t imu_ready_reported = 0U;
+
+    (void)argument;
+
+    next_wake_tick = osKernelGetTickCount();
+
+    for (;;)
+    {
+        IMU_Status_t imu_status;
+
+        imu_status = IMU_Update();
+
+        if (imu_status == IMU_STATUS_OK)
+        {
+            if (imu_ready_reported == 0U)
+            {
+                char response[32];
+                uint8_t battery_percentage;
+
+                if (PowerMonitor_ReadPercentage(
+                    &battery_percentage
+                ) == POWER_MONITOR_STATUS_OK)
+                {
+                    (void)snprintf(
+                        response,
+                        sizeof(response),
+                        "2,%u\r\n",
+                        (unsigned int)battery_percentage
+                    );
+
+                    (void)Communication_SendText(
+                        response,
+                        100U
+                    );
+                }
+                else
+                {
+                    (void)Communication_SendText(
+                        "2,ERR\r\n",
+                        100U
+                    );
+                }
+
+                imu_ready_reported = 1U;
+            }
+
+            print_counter++;
+
+            /*
+             * Read the DMP at 100 Hz, but print only at 10 Hz.
+             */
+            if (print_counter >= 10U)
+            {
+                int length;
+
+                print_counter = 0U;
+
+                length = snprintf(
+                    message,
+                    sizeof(message),
+                    "Heading:%.2f\r\n",
+                    (double)IMU_GetHeadingDeg()
+                );
+
+                if (length > 0)
+                {
+                    (void)DebugConsole_Write(
+                        (const uint8_t *)message,
+                        (uint16_t)length,
+                        100U
+                    );
+                }
+            }
+        }
+
+        next_wake_tick += 10U;
+
+        if (osDelayUntil(next_wake_tick) != osOK)
+        {
+            next_wake_tick = osKernelGetTickCount();
         }
     }
 }

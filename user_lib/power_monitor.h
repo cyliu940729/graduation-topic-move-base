@@ -15,7 +15,7 @@ typedef enum
 
 PowerMonitor_Status_t PowerMonitor_Init(void);
 
-PowerMonitor_Status_t PowerMonitor_ReadVoltage( float *battery_voltage );
+PowerMonitor_Status_t PowerMonitor_ReadPercentage( uint8_t *battery_percentage );
 
 #ifdef __cplusplus
 }

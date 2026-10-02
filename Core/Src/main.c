@@ -31,6 +31,7 @@
 #include "debug_console.h"
 #include "chassis_tasks.h"
 #include "power_monitor.h"
+#include "imu.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -114,6 +115,15 @@ int main(void)
     WheelControl_Init();
     MotionControl_Init();
 
+    if (IMU_Init(&hi2c2) != IMU_STATUS_OK)
+    {
+        DebugConsole_WriteText( "ERROR: IMU DMP init failed\r\n" );
+
+        Error_Handler();
+    }
+
+    DebugConsole_WriteText( "IMU DMP init OK\r\n" );
+
     if (PowerMonitor_Init() != POWER_MONITOR_STATUS_OK)
     {
         DebugConsole_WriteText(
@@ -181,7 +191,20 @@ int main(void)
 
     DebugConsole_WriteText("RTOS 7: motor task OK\r\n");
 
-    chassis_status =ChassisTasks_CreateDebugTask();
+    chassis_status = ChassisTasks_CreateImuTask();
+
+    if (chassis_status != CHASSIS_TASKS_STATUS_OK)
+    {
+        DebugConsole_WriteText(
+            "ERROR: IMU task create failed\r\n"
+        );
+
+        Error_Handler();
+    }
+
+    DebugConsole_WriteText(
+        "RTOS: IMU task OK\r\n"
+    );
 
     if (chassis_status != CHASSIS_TASKS_STATUS_OK)
     {

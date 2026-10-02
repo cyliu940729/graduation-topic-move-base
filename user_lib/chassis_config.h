@@ -32,6 +32,7 @@ extern "C" {
  */
 #define CHASSIS_MOTOR_TASK_STACK_SIZE        2048U
 #define CHASSIS_DEBUG_TASK_STACK_SIZE        1536U
+#define CHASSIS_IMU_TASK_STACK_SIZE          2048U
 
 
 /*
