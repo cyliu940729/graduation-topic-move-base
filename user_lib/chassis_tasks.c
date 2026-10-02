@@ -11,6 +11,7 @@
 #include "motion_control.h"
 #include "chassis_config.h"
 #include "mecanum_kinematics.h"
+#include "power_monitor.h"
 
 
 #define CHASSIS_DEBUG_PRINT_FLAG      (1UL << 0)
@@ -141,11 +142,23 @@ ChassisTasks_Status_t ChassisTasks_CreateDebugTask(void)
  */
 static void ChassisTasks_ReportCompletion(void)
 {
+    char response[32];
+    float battery_voltage;
+
     /*
      * Motor stopping is handled by MotionControl_Update().
      * UART access is handled by the communication module.
      */
-    (void)Communication_SendText( "1\r\n", 100U );
+    if (PowerMonitor_ReadVoltage( &battery_voltage ) == POWER_MONITOR_STATUS_OK)
+    {
+        (void)snprintf( response, sizeof(response), "1,%.2f\r\n", (double)battery_voltage );
+
+        (void)Communication_SendText( response, 100U );
+    }
+    else
+    {
+        (void)Communication_SendText( "1,ERR\r\n", 100U );
+    }
 
     if (chassis_debug_task_handle != NULL)
     {

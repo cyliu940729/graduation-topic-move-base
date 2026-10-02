@@ -30,6 +30,7 @@
 #include "motion_control.h"
 #include "debug_console.h"
 #include "chassis_tasks.h"
+#include "power_monitor.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -112,6 +113,15 @@ int main(void)
     Motor_Init();
     WheelControl_Init();
     MotionControl_Init();
+
+    if (PowerMonitor_Init() != POWER_MONITOR_STATUS_OK)
+    {
+        DebugConsole_WriteText(
+            "ERROR: power monitor init failed\r\n"
+        );
+
+        Error_Handler();
+    }
 
     motor_hw_ready = 1U;
 
