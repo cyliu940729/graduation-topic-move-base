@@ -20,12 +20,16 @@ PowerMonitor_Status_t PowerMonitor_Init(void)
 }
 
 
-PowerMonitor_Status_t PowerMonitor_ReadVoltage( float *battery_voltage)
+PowerMonitor_Status_t PowerMonitor_ReadPercentage(
+    uint8_t *battery_percentage
+)
 {
     uint32_t adc_raw;
     float adc_voltage;
+    float battery_voltage;
+    float percentage;
 
-    if (battery_voltage == NULL)
+    if (battery_percentage == NULL)
     {
         return POWER_MONITOR_STATUS_ADC_ERROR;
     }
@@ -35,7 +39,10 @@ PowerMonitor_Status_t PowerMonitor_ReadVoltage( float *battery_voltage)
         return POWER_MONITOR_STATUS_ADC_ERROR;
     }
 
-    if (HAL_ADC_PollForConversion(  &hadc1,  POWER_MONITOR_ADC_TIMEOUT_MS  ) != HAL_OK)
+    if (HAL_ADC_PollForConversion(
+        &hadc1,
+        POWER_MONITOR_ADC_TIMEOUT_MS
+    ) != HAL_OK)
     {
         (void)HAL_ADC_Stop(&hadc1);
 
@@ -46,13 +53,31 @@ PowerMonitor_Status_t PowerMonitor_ReadVoltage( float *battery_voltage)
 
     (void)HAL_ADC_Stop(&hadc1);
 
-    adc_voltage = ((float)adc_raw / POWER_MONITOR_ADC_MAX_VALUE) * POWER_MONITOR_ADC_REFERENCE_VOLTAGE;
+    adc_voltage =
+        ((float)adc_raw /
+         POWER_MONITOR_ADC_MAX_VALUE) *
+        POWER_MONITOR_ADC_REFERENCE_VOLTAGE;
 
-    /*
-     * The resistor-divider conversion will be
-     * applied here after the divider values are confirmed.
-     */
-    *battery_voltage = adc_voltage * ((POWER_MONITOR_R_TOP_OHM + POWER_MONITOR_R_BOTTOM_OHM) / POWER_MONITOR_R_BOTTOM_OHM);
+    battery_voltage =
+        adc_voltage *
+        ((POWER_MONITOR_R_TOP_OHM +
+          POWER_MONITOR_R_BOTTOM_OHM) /
+         POWER_MONITOR_R_BOTTOM_OHM);
+
+    percentage =
+        (battery_voltage - 11.6f) * 100.0f;
+
+    if (percentage > 100.0f)
+    {
+        percentage = 100.0f;
+    }
+    else if (percentage < 0.0f)
+    {
+        percentage = 0.0f;
+    }
+
+    *battery_percentage =
+        (uint8_t)(percentage + 0.5f);
 
     return POWER_MONITOR_STATUS_OK;
 }

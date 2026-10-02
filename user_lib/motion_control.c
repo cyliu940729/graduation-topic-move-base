@@ -5,6 +5,7 @@
 
 #include "encoder.h"
 #include "wheel_control.h"
+#include "imu.h"
 
 
 #define MOTION_CONTROL_WHEEL_COUNT    4U
@@ -39,7 +40,7 @@ static volatile float motion_distance_cm = 0.0f;
  */
 static volatile float motion_angle_deg = 0.0f;
 
-
+static uint8_t motion_rotation_use_imu = 0U;
 /*
  * Calculate the average absolute travel distance
  * of all four wheels.
@@ -67,6 +68,7 @@ void MotionControl_Init(void)
     motion_target_value = 0.0f;
     motion_distance_cm = 0.0f;
     motion_angle_deg = 0.0f;
+    motion_rotation_use_imu = 0U;
 
     WheelControl_Stop();
 }
@@ -107,6 +109,22 @@ MotionControl_StartResult_t MotionControl_Start(
     if (motion_direction == 7)
     {
         return MOTION_CONTROL_START_STOPPED;
+    }
+
+    motion_rotation_use_imu = 0U;
+
+    if ((motion_direction == 5) ||
+        (motion_direction == 6))
+    {
+        /*
+         * Use the IMU when it is healthy.
+         * Otherwise, the encoder will be used as fallback.
+         */
+        if (IMU_IsHealthy(100U) != 0U)
+        {
+            IMU_ResetHeading();
+            motion_rotation_use_imu = 1U;
+        }
     }
 
     /*
@@ -156,10 +174,53 @@ MotionControl_UpdateResult_t MotionControl_Update(
     motion_distance_cm =
         MotionControl_GetAverageWheelDistance();
 
-    motion_angle_deg =
-        CarAngle_From_WheelDistance(
-            motion_distance_cm
-        );
+    if ((motion_direction == 5) ||
+        (motion_direction == 6))
+    {
+        /*
+         * Use IMU as the primary rotation angle source.
+         */
+        if (motion_rotation_use_imu != 0U)
+        {
+            if (IMU_IsHealthy(100U) != 0U)
+            {
+                motion_angle_deg =
+                    fabsf(IMU_GetHeadingDeg());
+            }
+            else
+            {
+                /*
+                 * IMU failed during rotation.
+                 * Switch permanently to encoder fallback
+                 * for the current motion.
+                 */
+                motion_rotation_use_imu = 0U;
+
+                motion_angle_deg =
+                    CarAngle_From_WheelDistance(
+                        motion_distance_cm
+                    );
+            }
+        }
+        else
+        {
+            /*
+             * IMU was unavailable when the motion started,
+             * or it failed during the motion.
+             */
+            motion_angle_deg =
+                CarAngle_From_WheelDistance(
+                    motion_distance_cm
+                );
+        }
+    }
+    else
+    {
+        motion_angle_deg =
+            CarAngle_From_WheelDistance(
+                motion_distance_cm
+            );
+    }
 
     /*
      * Directions 1 to 4 use distance as the target.
@@ -213,6 +274,7 @@ void MotionControl_Stop(void)
 {
     WheelControl_Stop();
     motion_running = 0U;
+    motion_rotation_use_imu = 0U;
 }
 
 
