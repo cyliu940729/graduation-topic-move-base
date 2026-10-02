@@ -235,14 +235,20 @@ int main(void)
         "RTOS: ultrasonic task OK\r\n"
     );
 
+    chassis_status = ChassisTasks_CreateDebugTask();
+
     if (chassis_status != CHASSIS_TASKS_STATUS_OK)
     {
-        DebugConsole_WriteText("ERROR: debug task create failed\r\n");
+        DebugConsole_WriteText(
+            "ERROR: debug task create failed\r\n"
+        );
+
         Error_Handler();
     }
 
-    DebugConsole_WriteText("RTOS 8: debug task OK\r\n");
-
+    DebugConsole_WriteText(
+        "RTOS 8: debug task OK\r\n"
+    );
     DebugConsole_WriteText("RTOS 9: scheduler start\r\n");
 
     if (osKernelStart() != osOK)
