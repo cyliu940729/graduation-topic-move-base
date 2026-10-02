@@ -58,6 +58,7 @@
 extern UART_HandleTypeDef huart4;
 extern UART_HandleTypeDef huart5;
 extern TIM_HandleTypeDef htim6;
+extern TIM_HandleTypeDef htim8;
 
 /* USER CODE BEGIN EV */
 
@@ -204,5 +205,11 @@ void TIM6_IRQHandler(void)
 }
 
 /* USER CODE BEGIN 1 */
-
+/**
+  * @brief This function handles TIM8 capture compare interrupt.
+  */
+void TIM8_CC_IRQHandler(void)
+{
+    HAL_TIM_IRQHandler(&htim8);
+}
 /* USER CODE END 1 */

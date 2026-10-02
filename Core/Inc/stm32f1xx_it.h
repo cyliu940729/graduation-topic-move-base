@@ -56,7 +56,7 @@ void UART4_IRQHandler(void);
 void UART5_IRQHandler(void);
 void TIM6_IRQHandler(void);
 /* USER CODE BEGIN EFP */
-
+void TIM8_CC_IRQHandler(void);
 /* USER CODE END EFP */
 
 #ifdef __cplusplus

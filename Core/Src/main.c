@@ -32,6 +32,7 @@
 #include "chassis_tasks.h"
 #include "power_monitor.h"
 #include "imu.h"
+#include "ultrasonic.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -114,6 +115,19 @@ int main(void)
     Motor_Init();
     WheelControl_Init();
     MotionControl_Init();
+
+    if (Ultrasonic_Init() != ULTRASONIC_STATUS_OK)
+    {
+        DebugConsole_WriteText(
+            "ERROR: ultrasonic init failed\r\n"
+        );
+
+        Error_Handler();
+    }
+
+    DebugConsole_WriteText(
+        "Ultrasonic init OK\r\n"
+    );
 
     if (IMU_Init(&hi2c2) != IMU_STATUS_OK)
     {
@@ -204,6 +218,21 @@ int main(void)
 
     DebugConsole_WriteText(
         "RTOS: IMU task OK\r\n"
+    );
+
+    chassis_status = ChassisTasks_CreateUltrasonicTask();
+
+    if (chassis_status != CHASSIS_TASKS_STATUS_OK)
+    {
+        DebugConsole_WriteText(
+            "ERROR: ultrasonic task create failed\r\n"
+        );
+
+        Error_Handler();
+    }
+
+    DebugConsole_WriteText(
+        "RTOS: ultrasonic task OK\r\n"
     );
 
     if (chassis_status != CHASSIS_TASKS_STATUS_OK)

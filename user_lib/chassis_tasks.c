@@ -13,7 +13,7 @@
 #include "mecanum_kinematics.h"
 #include "power_monitor.h"
 #include "imu.h"
-
+#include "ultrasonic.h"
 
 #define CHASSIS_DEBUG_PRINT_FLAG      (1UL << 0)
 
@@ -24,7 +24,9 @@
 static osThreadId_t chassis_motor_task_handle = NULL;
 static osThreadId_t chassis_debug_task_handle = NULL;
 static osThreadId_t chassis_imu_task_handle = NULL;
+static osThreadId_t chassis_ultrasonic_task_handle = NULL;
 
+static volatile uint8_t chassis_ultrasonic_stop_request = 0U;
 
 
 
@@ -52,11 +54,20 @@ static const osThreadAttr_t chassis_imu_task_attributes =
     .priority = osPriorityNormal
 };
 
+static const osThreadAttr_t chassis_ultrasonic_task_attributes =
+{
+    .name = "ultrasonic",
+    .stack_size = CHASSIS_ULTRASONIC_TASK_STACK_SIZE,
+    .priority = osPriorityLow
+};
+
 
 static void ChassisTasks_MotorTask(void *argument);
 static void ChassisTasks_DebugTask(void *argument);
 static void ChassisTasks_ReportCompletion(void);
 static void ChassisTasks_ImuTask(void *argument);
+static void ChassisTasks_UltrasonicTask(void *argument);
+static void ChassisTasks_ReportObstacle(void);
 
 /*
  * Indicates whether communication and task
@@ -82,7 +93,9 @@ ChassisTasks_Status_t ChassisTasks_Init( UART_HandleTypeDef *command_uart, Chass
     chassis_motor_task_handle = NULL;
     chassis_debug_task_handle = NULL;
     chassis_imu_task_handle = NULL;
+    chassis_ultrasonic_task_handle = NULL;
     chassis_tasks_initialized = 0U;
+    chassis_ultrasonic_stop_request = 0U;
 
     communication_status = Communication_Init( command_uart, log_function );
 
@@ -169,6 +182,61 @@ ChassisTasks_Status_t ChassisTasks_CreateImuTask(void)
     return CHASSIS_TASKS_STATUS_OK;
 }
 
+ChassisTasks_Status_t ChassisTasks_CreateUltrasonicTask(void)
+{
+    if (chassis_tasks_initialized == 0U)
+    {
+        return CHASSIS_TASKS_STATUS_COMMUNICATION_ERROR;
+    }
+
+    if (chassis_ultrasonic_task_handle != NULL)
+    {
+        return CHASSIS_TASKS_STATUS_OK;
+    }
+
+    chassis_ultrasonic_task_handle = osThreadNew(
+        ChassisTasks_UltrasonicTask,
+        NULL,
+        &chassis_ultrasonic_task_attributes
+    );
+
+    if (chassis_ultrasonic_task_handle == NULL)
+    {
+        return CHASSIS_TASKS_STATUS_ULTRASONIC_TASK_ERROR;
+    }
+
+    return CHASSIS_TASKS_STATUS_OK;
+}
+
+static void ChassisTasks_ReportObstacle(void)
+{
+    char response[32];
+    uint8_t battery_percentage;
+
+    if (PowerMonitor_ReadPercentage(
+        &battery_percentage
+    ) == POWER_MONITOR_STATUS_OK)
+    {
+        (void)snprintf(
+            response,
+            sizeof(response),
+            "2,%u\r\n",
+            (unsigned int)battery_percentage
+        );
+
+        (void)Communication_SendText(
+            response,
+            100U
+        );
+    }
+    else
+    {
+        (void)Communication_SendText(
+            "2,ERR\r\n",
+            100U
+        );
+    }
+}
 
 /**
  * @brief Report that the current movement has completed.
@@ -278,6 +346,22 @@ static void ChassisTasks_MotorTask(void *argument)
         }
 
         /*
+         * Handle ultrasonic emergency stop request
+         * inside the motor control task.
+         */
+        if (chassis_ultrasonic_stop_request != 0U)
+        {
+            chassis_ultrasonic_stop_request = 0U;
+
+            MotionControl_Stop();
+
+            ChassisTasks_ReportObstacle();
+
+            DebugConsole_WriteText(
+                "Ultrasonic emergency stop\r\n"
+            );
+        }
+        /*
          * Update encoder data, completion detection, and wheel PID control.
          */
         motion_result = MotionControl_Update( CHASSIS_CONTROL_DT_S );
@@ -386,7 +470,7 @@ static void ChassisTasks_ImuTask(void *argument)
                     (void)snprintf(
                         response,
                         sizeof(response),
-                        "2,%u\r\n",
+                        "0,%u\r\n",
                         (unsigned int)battery_percentage
                     );
 
@@ -398,7 +482,7 @@ static void ChassisTasks_ImuTask(void *argument)
                 else
                 {
                     (void)Communication_SendText(
-                        "2,ERR\r\n",
+                        "0,ERR\r\n",
                         100U
                     );
                 }
@@ -441,5 +525,93 @@ static void ChassisTasks_ImuTask(void *argument)
         {
             next_wake_tick = osKernelGetTickCount();
         }
+    }
+}
+
+static void ChassisTasks_UltrasonicTask(void *argument)
+{
+    float distance_1_cm = 0.0f;
+    float distance_2_cm = 0.0f;
+
+    uint8_t obstacle_latched = 0U;
+
+    (void)argument;
+
+    for (;;)
+    {
+        Ultrasonic_Status_t status_1;
+        Ultrasonic_Status_t status_2;
+
+        status_1 = Ultrasonic_ReadDistance(
+            1U,
+            &distance_1_cm
+        );
+
+        osDelay(CHASSIS_ULTRASONIC_GAP_MS);
+
+        status_2 = Ultrasonic_ReadDistance(
+            2U,
+            &distance_2_cm
+        );
+
+        if ((status_1 == ULTRASONIC_STATUS_OK) &&
+            (status_2 == ULTRASONIC_STATUS_OK))
+        {
+            uint8_t obstacle_detected;
+            uint8_t obstacle_cleared;
+
+            MotionControl_Info_t motion_info;
+
+            obstacle_detected =
+                ((distance_1_cm <
+                  CHASSIS_ULTRASONIC_1_STOP_CM) ||
+                 (distance_2_cm <
+                  CHASSIS_ULTRASONIC_2_STOP_CM))
+                ? 1U : 0U;
+
+            obstacle_cleared =
+                ((distance_1_cm >=
+                  CHASSIS_ULTRASONIC_1_CLEAR_CM) &&
+                 (distance_2_cm >=
+                  CHASSIS_ULTRASONIC_2_CLEAR_CM))
+                ? 1U : 0U;
+
+            MotionControl_GetInfo(
+                &motion_info
+            );
+
+            /*
+             * Generate one stop event only when
+             * entering the obstacle state.
+             */
+            if ((obstacle_latched == 0U) &&
+                (obstacle_detected != 0U) &&
+                (motion_info.running != 0U))
+            {
+                obstacle_latched = 1U;
+
+                chassis_ultrasonic_stop_request = 1U;
+
+                DebugConsole_WriteText(
+                    "Ultrasonic obstacle detected\r\n"
+                );
+            }
+
+            /*
+             * Clear the event latch only after both
+             * sensors move safely above the reset limits.
+             */
+            if ((obstacle_latched != 0U) &&
+                (obstacle_cleared != 0U))
+            {
+                obstacle_latched = 0U;
+
+                DebugConsole_WriteText(
+                    "Ultrasonic obstacle cleared\r\n"
+                );
+            }
+        }
+
+        osDelay(CHASSIS_ULTRASONIC_GAP_MS);
     }
 }

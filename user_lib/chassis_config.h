@@ -33,13 +33,20 @@ extern "C" {
 #define CHASSIS_MOTOR_TASK_STACK_SIZE        2048U
 #define CHASSIS_DEBUG_TASK_STACK_SIZE        1536U
 #define CHASSIS_IMU_TASK_STACK_SIZE          2048U
-
+#define CHASSIS_ULTRASONIC_TASK_STACK_SIZE   1536U
 
 /*
  * Debug output buffer size.
  */
 #define CHASSIS_DEBUG_MESSAGE_SIZE           160U
 
+#define CHASSIS_ULTRASONIC_1_STOP_CM       10.0f
+#define CHASSIS_ULTRASONIC_2_STOP_CM        5.0f
+
+#define CHASSIS_ULTRASONIC_1_CLEAR_CM      12.0f
+#define CHASSIS_ULTRASONIC_2_CLEAR_CM       7.0f
+
+#define CHASSIS_ULTRASONIC_GAP_MS          60U
 
 #ifdef __cplusplus
 }
