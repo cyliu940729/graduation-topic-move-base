@@ -1,47 +1,75 @@
 # STM32 Mecanum-Wheel Chassis Controller
 
-This repository contains the firmware for a four-wheel mecanum chassis based on the STM32F103ZET6.
+Firmware for a four-wheel mecanum chassis based on the STM32F103ZET6.
 
-The firmware uses FreeRTOS with CMSIS-RTOS V2 and has been refactored into independent communication, motion-control, wheel-control, mecanum-kinematics, hardware-driver, task, configuration, and debug modules.
+The project uses FreeRTOS through CMSIS-RTOS V2 and separates communication, motion control, wheel control, mecanum direction mapping, encoder acquisition, IMU heading estimation, battery monitoring, ultrasonic obstacle detection, task scheduling, and debug output into independent modules.
 
-## Current Version
+## Current Status
 
-| Version | Description |
-|---|---|
-| `v0.1.0-baseline` | Initial verified chassis firmware before architecture refactoring |
-| `v0.2.0-refactored` | Verified modular chassis architecture with unchanged vehicle behavior |
-| `main` | Current stable development branch |
-
-The current firmware provides:
+The current `main` branch has been verified on the physical chassis and includes:
 
 - Four-wheel PWM motor control
-- Four quadrature encoder inputs
-- Closed-loop wheel-speed control
-- Fixed-distance linear movement
+- Four quadrature encoders
+- Closed-loop wheel-speed PI control
+- Fixed-distance translation
 - Fixed-angle rotation
-- Seven discrete chassis commands
-- UART4 command reception and completion reporting
+- MPU6050 DMP-based relative chassis heading estimation
+- Encoder fallback for rotation when IMU data is unavailable
+- Battery-percentage monitoring through ADC1
+- Two HC-SR04 ultrasonic sensors using TIM8 input capture interrupts
+- Obstacle-triggered emergency stop with hysteresis/latching
+- UART4 command and status interface
 - UART5 debug output
 - FreeRTOS task scheduling
-- Independent mecanum direction mapping
-- Centralized chassis configuration
-- Modular motion-control architecture
 
-## Refactoring Status
+Latest functional tag: `v0.5.0-ultrasonic`.
 
-The chassis architecture refactoring was completed and verified on the physical vehicle.
+## Important IMU Note
 
-The refactoring preserved:
+The IMU integration is complete for relative chassis rotation-angle measurement.
 
-- The original UART command format
-- The original direction mapping
-- The original 10 ms control period
-- The original 30 RPM default movement speed
-- The original distance and rotation completion behavior
-- The UART4 completion response
-- The UART5 encoder debug output
+The firmware does **not** use the MPU6050 native yaw value as the primary rotation reference. Because the sensor is mounted so that sensor X corresponds to the chassis vertical rotation axis, `imu.c` calculates incremental quaternion rotation around sensor X and accumulates it as `imu_heading_deg`.
 
-The main application file now focuses on hardware initialization and RTOS startup. Application responsibilities are separated into modules under `user_lib/`.
+The current IMU flow is:
+
+```text
+MPU6050 DMP quaternion
+        |
+        v
+relative quaternion between consecutive samples
+        |
+        v
+extract twist around sensor X
+        |
+        v
+gyro-X bias compensation + deadband
+        |
+        v
+accumulate relative chassis heading
+```
+
+Current heading-related settings:
+
+```text
+Gyro scale:            16.4 LSB/(deg/s)
+Calibration samples:   200
+Gyro deadband:         0.3 deg/s
+IMU task period:       10 ms
+IMU health timeout:    100 ms
+```
+
+At the current 10 ms IMU task period, the 200-sample stationary calibration takes approximately 2 seconds.
+
+`IMU_ResetHeading()` resets the relative heading to zero at the start of a rotation command.
+
+For direction 5 and direction 6:
+
+1. If the IMU is healthy when the movement starts, the relative heading is reset and the IMU becomes the primary rotation-angle source.
+2. Rotation progress uses the absolute value of `IMU_GetHeadingDeg()`.
+3. If IMU updates become unhealthy during that movement, the controller permanently switches to encoder-based angle estimation for the remainder of the command.
+4. If the IMU is unavailable when the movement starts, encoder-based angle estimation is used from the beginning.
+
+This means the firmware currently provides **relative rotation-angle estimation for turning**, not an absolute compass heading and not closed-loop heading correction during straight-line movement.
 
 ## Project Information
 
@@ -53,34 +81,36 @@ The main application file now focuses on hardware initialization and RTOS startu
 | STM32CubeF1 | V1.8.6 |
 | RTOS | FreeRTOS with CMSIS-RTOS V2 |
 | System clock | 72 MHz |
-| Control period | 10 ms |
-| Control frequency | 100 Hz |
-| Chassis type | Four-wheel mecanum chassis |
+| Motor control period | 10 ms |
+| Motor control frequency | 100 Hz |
+| Default movement speed | 30 RPM |
+| Chassis | Four-wheel mecanum |
+| IMU | GY-87 board / MPU6050 DMP |
+| Ultrasonic | HC-SR04 ×2 |
 
 ## System Role
 
-The STM32 acts as the low-level controller for each vehicle.
-
 ```text
-PC running ROS 2
+PC / ROS 2
     |
-    | Wi-Fi / micro-ROS
+    | Wi-Fi / upper-level communication
     v
 ESP32
     |
-    | UART
+    | UART4
     v
 STM32F103ZET6
     |
     +-- UART command handling
     +-- Chassis motion management
     +-- Mecanum wheel-target generation
-    +-- Wheel-speed control
+    +-- Four-wheel speed control
     +-- Encoder acquisition
-    +-- Distance and rotation completion detection
+    +-- MPU6050 relative heading estimation
+    +-- Battery monitoring
+    +-- Ultrasonic obstacle detection
+    +-- Motion completion / emergency-stop reporting
 ```
-
-The MPU6050 DMP driver is not integrated into the current firmware.
 
 ## Software Architecture
 
@@ -89,65 +119,58 @@ main.c
     |
     +-- Hardware initialization
     +-- Module initialization
-    +-- RTOS kernel startup
+    +-- RTOS startup
     |
     v
 chassis_tasks
     |
-    +-- Motor control task
-    +-- Completion debug task
-    +-- Module coordination
+    +-- Motor task
+    +-- IMU task
+    +-- Ultrasonic task
+    +-- Debug task
     |
-    +------------------------+
-    |                        |
-    v                        v
-communication           motion_control
-                             |
-                             v
-                       wheel_control
-                             |
-                      +------+------+
-                      |             |
-                      v             v
-             mecanum_kinematics   motor
-                                    |
-                                    v
-                                  encoder
+    +---------------- communication
+    |
+    +---------------- motion_control
+    |                     |
+    |                     +-- wheel_control
+    |                     |      |
+    |                     |      +-- mecanum_kinematics
+    |                     |      +-- motor
+    |                     |
+    |                     +-- encoder
+    |                     +-- imu
+    |
+    +---------------- ultrasonic
+    +---------------- power_monitor
 
 debug_console
-    |
     +-- UART5 debug output
     +-- RTOS mutex protection
-
-chassis_config
-    |
-    +-- Control period
-    +-- Default RPM
-    +-- Queue depth
-    +-- Task stack sizes
-    +-- Debug buffer size
 ```
 
 ### Module Responsibilities
 
 | Module | Responsibility |
 |---|---|
-| `main.c` | Hardware initialization, module initialization, RTOS startup, and fatal error handling |
-| `chassis_tasks` | RTOS task creation, periodic control scheduling, command dispatch, and completion reporting |
-| `communication` | UART4 interrupt reception, frame assembly, internal message queue, command parsing, and UART4 text transmission |
-| `motion_control` | Motion state, target distance or angle, encoder progress, completion detection, and immediate stop behavior |
-| `mecanum_kinematics` | Conversion of discrete chassis direction commands into four signed wheel targets |
-| `wheel_control` | Four-wheel target RPM storage, wheel PID execution, and coordinated motor stop |
-| `motor` | PWM generation, direction GPIO control, and individual wheel PI/PID implementation |
-| `encoder` | Encoder sampling, count accumulation, RPM filtering, wheel distance, and chassis-angle estimation |
-| `debug_console` | UART5 boot and task-level debug output with mutex protection |
-| `chassis_config` | Shared chassis control and RTOS configuration constants |
+| `main.c` | Peripheral initialization, module initialization, RTOS startup, fatal error handling |
+| `chassis_tasks` | Task creation, command dispatch, periodic control, IMU update, ultrasonic monitoring, status reporting |
+| `communication` | UART4 interrupt reception, frame assembly, RTOS queue, command parsing, UART4 transmission |
+| `motion_control` | Motion state, target distance/angle, completion detection, IMU/encoder rotation source selection, stop behavior |
+| `mecanum_kinematics` | Discrete direction command to four signed wheel-RPM targets |
+| `wheel_control` | Wheel target storage, four-wheel PI execution, coordinated stop |
+| `motor` | TIM1 PWM, direction GPIO, individual wheel PI/PID controller |
+| `encoder` | Encoder sampling, RPM filtering, distance, encoder-based chassis-angle estimation |
+| `mpu6050_dmp` | MPU6050 DMP firmware loading, FIFO access, quaternion/gyro/acceleration data extraction |
+| `imu` | DMP update, startup gyro calibration, relative heading calculation, health monitoring |
+| `power_monitor` | ADC battery-voltage measurement and battery-percentage conversion |
+| `ultrasonic` | HC-SR04 trigger control and TIM8 input-capture pulse-width measurement |
+| `debug_console` | UART5 debug transmission with task-level mutex protection |
+| `chassis_config` | Shared chassis, RTOS, ultrasonic, and control constants |
 
-## Current Features
+## Motor and Encoder Control
 
-### Motor Control
-
-TIM1 generates four PWM outputs:
+TIM1 generates four motor PWM channels:
 
 | PWM channel | Motor |
 |---|---|
@@ -156,63 +179,29 @@ TIM1 generates four PWM outputs:
 | TIM1 CH3 | M3 |
 | TIM1 CH4 | M4 |
 
-Current PWM configuration:
+PWM frequency is approximately 20 kHz with ARR = 3599.
 
-```text
-Timer prescaler: 0
-Auto-reload value: 3599
-PWM frequency: approximately 20 kHz
-PWM output range: 0 to 100 percent
-```
+Encoder mapping:
 
-Each motor has an independent direction GPIO and supports:
-
-- Forward rotation
-- Reverse rotation
-- Stop
-
-### Encoders
-
-| Motor | Encoder timer |
+| Motor | Timer |
 |---|---|
 | M1 | TIM5 |
 | M2 | TIM3 |
 | M3 | TIM4 |
 | M4 | TIM2 |
 
-Current encoder and chassis parameters:
+Encoder parameters:
 
 ```text
-ENCODER_CPR              = 61440
-WHEEL_DIAMETER_CM        = 6.8
-CAR_HALF_WHEELBASE_CM    = 5.5
-CAR_HALF_TRACK_CM        = 9.5
-ENCODER_DT               = 0.01
-RPM_FILTER_ALPHA         = 0.25
+ENCODER_CPR           = 61440
+WHEEL_DIAMETER_CM     = 6.8
+CAR_HALF_WHEELBASE_CM = 5.5
+CAR_HALF_TRACK_CM     = 9.5
+ENCODER_DT            = 0.01 s
+RPM_FILTER_ALPHA      = 0.25
 ```
 
-Encoder direction correction:
-
-```text
-M1 = -1
-M2 = +1
-M3 = -1
-M4 = +1
-```
-
-The encoder module currently provides:
-
-- Accumulated encoder count
-- Wheel angle
-- Wheel RPM
-- Wheel travel distance
-- Chassis rotation angle estimated from wheel travel
-
-### Wheel-Speed Control
-
-The wheel-speed controller runs every 10 ms from the motor control task implemented in `chassis_tasks.c`.
-
-Current controller parameters:
+Current wheel controller parameters:
 
 | Motor | Kp | Ki | Kd |
 |---|---:|---:|---:|
@@ -221,112 +210,11 @@ Current controller parameters:
 | M3 | 0.5 | 5.0 | 0.0 |
 | M4 | 0.5 | 5.0 | 0.0 |
 
-The controller includes:
+Because `Kd` is currently zero, the controller operates as PI control. The PID implementation still contains derivative filtering and anti-windup support.
 
-- Derivative on measurement
-- Derivative low-pass filter support
-- Conditional-integration anti-windup
-- PID reset when motor direction changes
-- Derivative-state reset when the target speed changes
-- PID reset when the motor stops
+## Motion Commands
 
-Because `Kd` is currently zero, the controller operates as a PI controller.
-
-Current PWM limits:
-
-```text
-Minimum active PWM: 10 percent
-Maximum PWM: 100 percent
-```
-
-## FreeRTOS Architecture
-
-### RTOS Configuration
-
-```text
-Tick rate: 1000 Hz
-Heap size: 16 KB
-Preemption: enabled
-Mutex support: enabled
-Queue registry size: 8
-```
-
-The CubeMX-generated `defaultTask` is not used by the application.
-
-### Motor Control Task
-
-```text
-Task name: run_motor
-Priority: osPriorityAboveNormal
-Stack size: 2048 bytes
-Period: 10 ms
-```
-
-Responsibilities:
-
-1. Start UART4 interrupt reception.
-2. Request a parsed command from the communication module.
-3. Pass valid commands to the motion-control module.
-4. Update the current motion state every 10 ms.
-5. Run encoder updates and four wheel-speed controllers through the motion-control module.
-6. Detect motion completion.
-7. Return the completion response through the communication module.
-8. Wake the debug task after a completed movement.
-
-### Debug Task
-
-```text
-Task name: uart_debug
-Priority: osPriorityLow
-Stack size: 1536 bytes
-Trigger: thread flag
-```
-
-The task reports:
-
-- Final distance of each wheel
-- Received movement direction
-- Requested distance or angle
-
-### UART Command Queue
-
-```text
-Queue depth: 8
-Message size: 32 bytes
-Owner: communication module
-```
-
-The UART4 interrupt callback only assembles incoming frames and places complete frames into the communication module's internal RTOS message queue.
-
-Command parsing and motor control are not performed inside the interrupt callback.
-
-### UART5 Mutex
-
-Task-level UART5 transmissions use the mutex owned by `debug_console.c` to prevent debug messages from being interleaved.
-
-Boot messages are transmitted before the scheduler starts without using the mutex.
-
-## UART Communication
-
-### UART4 Command Interface
-
-UART4 receives movement commands from the external controller and returns movement-completion responses.
-
-```text
-Baud rate: 115200
-Data bits: 8
-Parity: none
-Stop bits: 1
-```
-
-Pin assignment:
-
-| STM32 pin | Function | Board label |
-|---|---|---|
-| PC10 | UART4 TX | ESP_RX |
-| PC11 | UART4 RX | ESP_TX |
-
-Command format:
+UART4 command format:
 
 ```text
 (direction,distance)
@@ -340,183 +228,156 @@ Examples:
 (7,0)
 ```
 
-Frame rules:
+Direction mapping:
 
-- A frame starts with `(`.
-- A frame ends with `)`.
-- `direction` is an integer.
-- `distance` is a floating-point value.
-- UART4 receives one byte at a time by interrupt.
-- A complete frame is passed to the communication module's message queue.
-- Parsing is performed in task context rather than interrupt context.
+| Direction | Wheel signs | Function | Completion source |
+|---:|---|---|---|
+| 1 | `+ + + +` | Forward | Average absolute wheel distance |
+| 2 | `- - - -` | Backward | Average absolute wheel distance |
+| 3 | `+ - + -` | Lateral A | Average absolute wheel distance |
+| 4 | `- + - +` | Lateral B | Average absolute wheel distance |
+| 5 | `+ - - +` | Rotate A | IMU relative heading, encoder fallback |
+| 6 | `- + + -` | Rotate B | IMU relative heading, encoder fallback |
+| 7 | `0 0 0 0` | Immediate stop | N/A |
 
-Current direction mapping:
+Directions 1 through 4 treat the second command value as centimeters.
 
-| Direction | Wheel RPM signs | Current function |
-|---:|---|---|
-| 1 | `+ + + +` | Forward |
-| 2 | `- - - -` | Backward |
-| 3 | `+ - + -` | Lateral direction A |
-| 4 | `- + - +` | Lateral direction B |
-| 5 | `+ - - +` | Rotation direction A |
-| 6 | `- + + -` | Rotation direction B |
-| 7 | `0 0 0 0` | Immediate stop |
+Directions 5 and 6 treat the second command value as degrees.
 
-The exact left/right naming of directions 3 through 6 depends on the physical wheel and motor installation.
+Direction 7 stops the current movement immediately.
 
-When a movement is complete, STM32 returns:
+## UART4 Status Responses
 
-```text
-1\r\n
-```
+UART4 uses status plus battery percentage:
 
-Direction 7 stops the current motion immediately and does not represent a completed distance or angle command.
+| Response | Meaning |
+|---|---|
+| `0,<battery>` | IMU startup calibration completed and system is ready |
+| `1,<battery>` | Requested movement completed normally |
+| `2,<battery>` | Ultrasonic obstacle event stopped the current movement |
 
-### UART5 Debug Interface
+Examples:
 
 ```text
-Baud rate: 115200
-STM32 TX: PC12
-STM32 RX: PD2
+0,87
+1,86
+2,86
 ```
 
-UART5 is currently used for:
+If battery measurement fails, the corresponding response uses `ERR`, for example `1,ERR`.
 
-- Boot messages
-- RTOS initialization messages
-- UART4 receive status
-- Received UART frame output
-- Command parsing errors
-- Invalid-command errors
-- Final wheel-distance output
+## Battery Monitoring
 
-UART5 is not used as the main ESP32 command interface.
+ADC1 monitors the battery through PA4 (`B_V`).
+
+Current divider:
+
+```text
+R_TOP    = 27 kOhm
+R_BOTTOM = 10 kOhm
+```
+
+Battery percentage is linearly mapped and clamped:
+
+```text
+12.6 V -> 100%
+11.6 V ->   0%
+```
+
+Battery percentage is included in UART4 ready, completion, and obstacle responses.
+
+## Ultrasonic Obstacle Detection
+
+The application currently uses ultrasonic connector 1 and connector 2.
+
+| Logical sensor | Trigger | Echo | TIM8 channel |
+|---|---|---|---|
+| Sensor 1 | TR1 / PA11 | EC1 / PC6 | CH1 |
+| Sensor 2 | TR2 / PA10 | EC2 / PC7 | CH2 |
+
+TIM8 is configured as a 1 MHz counter, so one timer count corresponds to approximately 1 microsecond.
+
+Echo pulse edges are captured with TIM8 capture/compare interrupts rather than GPIO polling.
+
+Obstacle thresholds:
+
+| Sensor | Stop threshold | Clear threshold |
+|---|---:|---:|
+| Sensor 1 | < 10 cm | >= 12 cm |
+| Sensor 2 | < 5 cm | >= 7 cm |
+
+The two sensors are sampled sequentially with a 60 ms gap to reduce ultrasonic cross-talk.
+
+When either stop threshold is crossed while the chassis is moving:
+
+1. The ultrasonic task raises a stop request.
+2. The motor task executes `MotionControl_Stop()`.
+3. UART4 returns `2,<battery>` once.
+4. The obstacle event remains latched while the obstacle is still close.
+5. The latch clears only after both sensors exceed their clear thresholds.
+6. A later approach can generate a new obstacle event.
+
+This hysteresis prevents repeated stop/status events when the measured distance fluctuates around a threshold.
+
+## FreeRTOS Tasks
+
+| Task | Priority | Stack | Main responsibility |
+|---|---|---:|---|
+| `run_motor` | AboveNormal | 2048 B | UART command dispatch, 10 ms motion update, wheel control, stop handling |
+| `imu` | Normal | 2048 B | MPU6050 DMP update and relative heading calculation at 10 ms period |
+| `ultrasonic` | Low | 1536 B | Alternating HC-SR04 measurement and obstacle-state logic |
+| `uart_debug` | Low | 1536 B | Final motion debug output |
+
+UART5 task-level output is protected by the mutex in `debug_console.c`.
 
 ## Current Motion-Control Flow
 
 ```text
-UART4 receives ASCII frame
-        |
-        v
-communication assembles frame
-        |
-        v
-communication queue stores frame
-        |
-        v
-communication parses direction and target
-        |
-        v
-chassis_tasks dispatches command
-        |
-        v
-motion_control stops previous motion
-and resets encoder state
-        |
-        v
-mecanum_kinematics calculates
-four signed wheel targets
-        |
-        v
-wheel_control stores wheel targets
-        |
-        v
-motion_control runs encoder updates
-and four PI wheel-speed controllers at 100 Hz
-        |
-        v
-motion_control calculates progress
-        |
-        +-- Translation: distance >= target distance
-        |
-        +-- Rotation: estimated angle >= target angle
-        |
-        v
-wheel_control stops all motors
-        |
-        v
-communication returns completion message
-through UART4
-        |
-        v
-debug task prints final wheel distances
-through UART5
+UART4 command
+    |
+    v
+communication queue / parser
+    |
+    v
+chassis_tasks
+    |
+    v
+motion_control
+    |
+    +-- directions 1..4
+    |      encoder distance -> completion
+    |
+    +-- directions 5..6
+    |      IMU healthy?
+    |        |
+    |        +-- yes -> reset relative heading
+    |        |          use IMU heading magnitude
+    |        |
+    |        +-- no  -> encoder angle fallback
+    |
+    +-- direction 7
+           immediate stop
+
+Ultrasonic task
+    |
+    +-- obstacle -> motor-task stop request -> 2,battery
 ```
 
-The default movement speed is configured in `chassis_config.h`:
+## Peripheral Summary
 
-```text
-CHASSIS_DEFAULT_SPEED_RPM = 30 RPM
-```
-
-The control period and PID time step share the same configuration source:
-
-```text
-CHASSIS_CONTROL_PERIOD_MS = 10 ms
-CHASSIS_CONTROL_DT_S      = 0.01 s
-```
-
-## Movement Completion Logic
-
-### Translation
-
-Directions 1 through 4 use the average absolute wheel distance:
-
-```text
-(|M1| + |M2| + |M3| + |M4|) / 4
-```
-
-The chassis stops when the average wheel distance reaches or exceeds the requested distance.
-
-### Rotation
-
-Directions 5 and 6 use the average absolute wheel distance and the following turning radius:
-
-```text
-Turning radius = half wheelbase + half track width
-```
-
-The chassis stops when the estimated rotation reaches or exceeds the requested angle.
-
-## Peripheral Configuration
-
-### System Clock
-
-```text
-HSE: 8 MHz
-PLL multiplier: 9
-SYSCLK: 72 MHz
-APB1: 36 MHz
-APB2: 72 MHz
-```
-
-### I2C
-
-| Peripheral | SCL | SDA | Intended use | Current status |
-|---|---|---|---|---|
-| I2C1 | PB6 | PB7 | LCD | Initialized but not used by application code |
-| I2C2 | PB10 | PB11 | GY-87 / MPU6050 | Initialized but driver not integrated |
-
-Both I2C peripherals are configured for 100 kHz.
-
-### ADC1
-
-| Pin | Label | Intended use |
+| Peripheral | Pins / channels | Current use |
 |---|---|---|
-| PA4 | B_V | Battery-voltage measurement |
-
-ADC1 is initialized but is not currently used by the application.
-
-### TIM8 Input Capture
-
-| Pin | Label |
-|---|---|
-| PC6 | EC1 |
-| PC7 | EC2 |
-| PC8 | EC3 |
-| PC9 | EC4 |
-
-TIM8 channels 1 through 4 are configured for input capture but are not currently used by the application.
+| TIM1 | CH1-CH4 | Four motor PWM outputs |
+| TIM2/TIM3/TIM4/TIM5 | Encoder inputs | Four wheel encoders |
+| I2C1 | PB6/PB7 | Initialized; application use not currently defined |
+| I2C2 | PB10/PB11 | MPU6050 DMP |
+| UART4 | PC10/PC11 | ESP32 command/status interface |
+| UART5 | PC12/PD2 | Debug console |
+| ADC1 | PA4 | Battery monitoring |
+| TIM8 CH1 | PC6 | Ultrasonic sensor 1 echo |
+| TIM8 CH2 | PC7 | Ultrasonic sensor 2 echo |
+| TIM8 CH3 | PC8 | Configured but not used by current application logic |
+| TIM8 CH4 | PC9 | Configured but not used by current application logic |
 
 ## Project Structure
 
@@ -525,26 +386,21 @@ graduation-topic-move-base/
 |-- Core/
 |   |-- Inc/
 |   |-- Src/
-|   |   `-- main.c
 |   `-- Startup/
 |-- user_lib/
 |   |-- chassis_config.h
-|   |-- chassis_tasks.c
-|   |-- chassis_tasks.h
-|   |-- communication.c
-|   |-- communication.h
-|   |-- debug_console.c
-|   |-- debug_console.h
-|   |-- encoder.c
-|   |-- encoder.h
-|   |-- mecanum_kinematics.c
-|   |-- mecanum_kinematics.h
-|   |-- motion_control.c
-|   |-- motion_control.h
-|   |-- motor.c
-|   |-- motor.h
-|   |-- wheel_control.c
-|   `-- wheel_control.h
+|   |-- chassis_tasks.c/.h
+|   |-- communication.c/.h
+|   |-- debug_console.c/.h
+|   |-- encoder.c/.h
+|   |-- imu.c/.h
+|   |-- mecanum_kinematics.c/.h
+|   |-- motion_control.c/.h
+|   |-- motor.c/.h
+|   |-- mpu6050_dmp.c/.h
+|   |-- power_monitor.c/.h
+|   |-- ultrasonic.c/.h
+|   `-- wheel_control.c/.h
 |-- Drivers/
 |-- Middlewares/
 |-- main.ioc
@@ -552,165 +408,27 @@ graduation-topic-move-base/
 `-- README.md
 ```
 
-### `Core/Src/main.c`
-
-`main.c` is limited to:
-
-- HAL and peripheral initialization
-- Debug-console initialization
-- Motor and encoder module initialization
-- RTOS kernel initialization
-- Chassis task initialization and creation
-- Scheduler startup
-- Fatal error handling
-
-### `user_lib/chassis_tasks.c` and `user_lib/chassis_tasks.h`
-
-These files provide:
-
-- Creation of the motor control task
-- Creation of the completion debug task
-- Periodic 10 ms control scheduling
-- Command dispatch between communication and motion control
-- UART4 completion reporting through the communication module
-- UART5 final-distance reporting through the debug console
-
-### `user_lib/communication.c` and `user_lib/communication.h`
-
-These files provide:
-
-- UART4 interrupt reception
-- ASCII frame assembly
-- Internal RTOS message queue
-- Command parsing
-- UART4 text response transmission
-- Optional debug logging callback
-
-### `user_lib/motion_control.c` and `user_lib/motion_control.h`
-
-These files provide:
-
-- Current motion state
-- Direction and target storage
-- Encoder reset when a command starts
-- Translation-distance progress calculation
-- Rotation-angle progress calculation
-- Completion detection
-- Immediate-stop handling
-- Periodic wheel-controller execution
-
-### `user_lib/mecanum_kinematics.c` and `user_lib/mecanum_kinematics.h`
-
-These files provide:
-
-- Direction 1 through 6 mapping
-- Four signed wheel-target values
-- Separation of chassis movement logic from wheel PID execution
-
-The current module implements discrete direction mapping. Continuous `vx`, `vy`, and `wz` forward or inverse kinematics are not implemented yet.
-
-### `user_lib/wheel_control.c` and `user_lib/wheel_control.h`
-
-These files provide:
-
-- Four wheel target-RPM storage
-- Mecanum target calculation requests
-- Four-wheel speed PID execution
-- Coordinated motor stop and target clearing
-
-### `user_lib/debug_console.c` and `user_lib/debug_console.h`
-
-These files provide:
-
-- UART5 debug output
-- Boot-time output before scheduler startup
-- RTOS mutex creation
-- Mutex-protected task-level transmission
-- Text and binary output interfaces
-
-### `user_lib/chassis_config.h`
-
-This file provides shared settings for:
-
-- UART command queue depth
-- Motor control period
-- PID time step
-- Default movement RPM
-- RTOS task stack sizes
-- Debug-message buffer size
-
-### `user_lib/motor.c` and `user_lib/motor.h`
-
-These files provide:
-
-- Four-channel PWM startup
-- Motor direction GPIO control
-- PWM percentage output
-- Four wheel PI/PID controllers
-- Anti-windup handling
-- Controller-state reset
-- RPM and PWM state access
-
-### `user_lib/encoder.c` and `user_lib/encoder.h`
-
-These files provide:
-
-- Four encoder timer inputs
-- 16-bit counter overflow handling
-- Encoder direction correction
-- Accumulated count
-- RPM calculation
-- RPM low-pass filtering
-- Wheel-angle conversion
-- Wheel-distance conversion
-- Chassis rotation estimation
-
-## Build Instructions
+## Build
 
 1. Open STM32CubeIDE.
-2. Import the project with `Existing Projects into Workspace`.
-3. Select the project root directory.
-4. Select the Debug or Release configuration.
-5. Build the project.
-6. Program the MCU using ST-LINK and SWD.
+2. Import the repository as an existing project.
+3. Select Debug or Release.
+4. Build the firmware.
+5. Program the STM32 using ST-LINK/SWD.
 
-The linker configuration currently enables:
-
-```text
--u _printf_float
--u _scanf_float
-```
-
-The Debug configuration also generates an Intel HEX file.
-
-Expected build outputs:
-
-```text
-Debug/main.elf
-Debug/main.hex
-```
-
-## Expected Boot Output
-
-UART5 should print messages similar to:
-
-```text
-Init OK
-RTOS 1: kernel init
-RTOS 2: kernel init OK
-RTOS 3: communication init
-RTOS 4: communication OK
-RTOS 5: create debug console mutex
-RTOS 6: debug console mutex OK
-RTOS 7: motor task OK
-RTOS 8: debug task OK
-RTOS 9: scheduler start
-UART4 RX interrupt started
-```
+The linker configuration enables floating-point `printf`/`scanf` support.
 
 ## Basic Functional Test
 
-After programming the MCU, test the following commands:
+After programming, first keep the chassis stationary while the IMU performs startup calibration.
+
+Expected UART4 ready response after calibration:
+
+```text
+0,<battery>
+```
+
+Then verify:
 
 ```text
 (1,30)
@@ -722,66 +440,79 @@ After programming the MCU, test the following commands:
 (7,0)
 ```
 
-Verify:
+Check that:
 
-- Directions 1 through 6 match the physical chassis installation.
-- Translation commands stop after the requested distance.
-- Rotation commands stop after the requested angle.
-- Direction 7 stops the current movement immediately.
-- UART4 returns `1\r\n` after a completed movement.
-- UART5 prints the final four wheel distances.
-- A new command can replace a movement already in progress.
-- Invalid frames do not stop the RTOS control task.
+- Directions 1 through 4 stop at the requested distance.
+- Directions 5 and 6 stop at the requested angle using IMU heading when healthy.
+- Rotation falls back to encoder estimation if IMU data becomes unavailable.
+- Direction 7 immediately stops the chassis.
+- Normal completion returns `1,<battery>`.
+- Sensor 1 below 10 cm or sensor 2 below 5 cm stops a moving chassis and returns `2,<battery>` once.
+- Moving back into the clear region resets the ultrasonic latch so a later obstacle can trigger again.
+- UART5 continues to provide debug output.
 
 ## Known Limitations
 
-- Movement speed is fixed at 30 RPM for the current command interface.
-- Target wheel speeds change immediately without acceleration limiting.
-- No ramp acceleration or ramp deceleration is implemented.
-- No braking-distance estimation is implemented.
-- Motors stop immediately when the encoder threshold is reached.
-- Movement completion does not check final wheel speed or settling time.
-- Direction 7 is an immediate stop only.
-- Translation distance is based on the average absolute distance of all four wheels.
-- The mecanum module currently supports discrete direction mapping only.
-- Continuous mecanum `vx`, `vy`, and `wz` conversion is not implemented.
-- Odometry is not implemented.
-- MPU6050 DMP is not integrated.
-- IMU-based heading correction is not implemented.
-- UART commands use an ASCII frame without CRC or sequence numbers.
-- Protocol-level command timeout handling is not implemented.
+- Movement speed is fixed at 30 RPM through the current command interface.
+- Target wheel speed changes immediately; the trapezoidal motion-profile experiment was reverted from `main`.
+- No braking-distance or final-settling model is implemented.
+- Continuous mecanum `vx`, `vy`, and `wz` commands are not implemented.
+- Wheel odometry is not implemented.
+- IMU heading is relative and may drift over long periods.
+- No magnetometer-based absolute heading correction is currently used.
+- IMU heading is used for rotation completion, not straight-line heading correction.
+- Ultrasonic obstacle logic currently evaluates the obstacle state only when both sensor reads are successful.
+- UART framing has no CRC, sequence number, or protocol-level timeout.
 
 ## Version History
 
+### `v0.5.0-ultrasonic`
+
+- Added dual HC-SR04 measurement.
+- Replaced GPIO polling with TIM8 input-capture interrupts.
+- Added asymmetric obstacle thresholds and clear thresholds.
+- Added obstacle latch/hysteresis.
+- Added obstacle-triggered stop and UART4 `2,<battery>` response.
+
+### `v0.4.0-imu`
+
+- Integrated MPU6050 DMP.
+- Added startup gyro-X bias calibration.
+- Added relative chassis heading calculation around the sensor X axis.
+- Added IMU health monitoring.
+- Added IMU-primary rotation completion with encoder fallback.
+- Added UART4 ready response after IMU calibration.
+
+### Battery Monitoring
+
+- Added ADC1 battery-voltage measurement.
+- Added 27 kOhm / 10 kOhm divider conversion.
+- Added 11.6 V to 12.6 V battery-percentage mapping.
+- Added battery percentage to UART4 status responses.
+
+### `v0.3.0-motion-profile`
+
+- Experimental trapezoidal motion-profile implementation.
+- The feature was later reverted from `main`; the current firmware uses immediate fixed-RPM targets.
+
 ### `v0.2.0-refactored`
 
-- Separated UART communication from `main.c`.
-- Added an internal communication message queue.
-- Added a dedicated debug-console module.
-- Added a dedicated chassis-task module.
-- Added a motion-control state module.
-- Added a wheel-control module.
-- Added an independent mecanum direction-mapping module.
-- Added centralized chassis configuration.
-- Reduced `main.c` to initialization and RTOS startup responsibilities.
-- Preserved the original command format and vehicle behavior.
-- Verified the refactored firmware on the physical chassis.
+- Split communication, motion control, wheel control, mecanum mapping, task management, configuration, and debug responsibilities into separate modules.
+- Preserved the original verified chassis behavior.
 
 ### `v0.1.0-baseline`
 
-- Imported the initial verified STM32 mecanum chassis firmware.
-- Preserved the original single-file application-control structure.
+- Initial verified chassis firmware before architecture refactoring.
 
 ## Planned Development
 
-Future work may include:
+Potential future work:
 
-- Trapezoidal acceleration and deceleration
-- Improved stop and settling criteria
-- Braking-distance estimation
-- Continuous `vx`, `vy`, and `wz` command support
-- ROS 2 or micro-ROS velocity-command integration
+- Continuous `vx`, `vy`, and `wz` commands
+- ROS 2 / micro-ROS velocity-command integration
 - Wheel odometry
-- MPU6050 DMP integration
-- IMU-based heading correction
-- More robust UART framing with sequence numbers and CRC
+- Optional absolute-heading source or magnetometer fusion
+- Straight-line IMU heading correction
+- Improved braking and settling criteria
+- More robust ultrasonic fault handling
+- UART framing with sequence numbers and CRC
